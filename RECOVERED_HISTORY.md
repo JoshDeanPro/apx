@@ -18,3 +18,4 @@ recovered original commit dates.
 2025-11-21T23:44:28-07:00 — Build the first LOCALCLOUD capability framework — checkpoint 2/4
 2025-12-02T13:39:19-07:00 — Formalize LOCALCLOUD around AXP 0.1 — checkpoint 5/5
 2025-12-02T21:30:28-07:00 — Formalize LOCALCLOUD around AXP 0.1 — checkpoint 2/5
+2025-12-06T18:50:17-07:00 — Add self-hosted connection and extension layer — checkpoint 3/3
