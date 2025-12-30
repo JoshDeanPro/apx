@@ -25,3 +25,4 @@ recovered original commit dates.
 2025-12-12T10:51:50-07:00 — Add self-hosted connection and extension layer — checkpoint 1/3
 2025-12-17T23:09:58-07:00 — Add integration and connectivity discovery layer — checkpoint 1/3
 2025-12-30T13:05:21-07:00 — Add Paddle and Purelymail integrations; extend Cloudflare/Discord action surface — checkpoint 1/3
+2025-12-30T14:40:15-07:00 — Add identity device-link: acquire an OpenPower identity token via the website, not a local secret — checkpoint 5/5
