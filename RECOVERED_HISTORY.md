@@ -24,3 +24,4 @@ recovered original commit dates.
 2025-12-11T15:10:34-07:00 — Add integration and connectivity discovery layer — checkpoint 3/3
 2025-12-12T10:51:50-07:00 — Add self-hosted connection and extension layer — checkpoint 1/3
 2025-12-17T23:09:58-07:00 — Add integration and connectivity discovery layer — checkpoint 1/3
+2025-12-30T13:05:21-07:00 — Add Paddle and Purelymail integrations; extend Cloudflare/Discord action surface — checkpoint 1/3
