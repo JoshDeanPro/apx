@@ -27,3 +27,4 @@ recovered original commit dates.
 2025-12-30T13:05:21-07:00 — Add Paddle and Purelymail integrations; extend Cloudflare/Discord action surface — checkpoint 1/3
 2025-12-30T14:40:15-07:00 — Add identity device-link: acquire an OpenPower identity token via the website, not a local secret — checkpoint 5/5
 2025-12-30T15:27:20-07:00 — Add Paddle and Purelymail integrations; extend Cloudflare/Discord action surface — checkpoint 3/3
+2025-12-30T20:29:00-07:00 — Add identity device-link: acquire an OpenPower identity token via the website, not a local secret — checkpoint 2/5
