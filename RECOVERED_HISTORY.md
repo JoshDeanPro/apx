@@ -30,3 +30,4 @@ recovered original commit dates.
 2025-12-30T20:29:00-07:00 — Add identity device-link: acquire an OpenPower identity token via the website, not a local secret — checkpoint 2/5
 2026-01-04T21:51:22-07:00 — Add identity device-link: acquire an OpenPower identity token via the website, not a local secret — checkpoint 4/5
 2026-01-07T12:00:54-07:00 — Add identity device-link: acquire an OpenPower identity token via the website, not a local secret — checkpoint 1/5
+2026-01-07T13:39:26-07:00 — Add openpower_bridge: live heartbeat/AI-CLI-detection/command execution loop — checkpoint 1/2
