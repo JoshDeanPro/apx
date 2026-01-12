@@ -34,3 +34,4 @@ recovered original commit dates.
 2026-01-08T07:20:38-07:00 — Add openpower_bridge: live heartbeat/AI-CLI-detection/command execution loop — checkpoint 2/2
 2026-01-09T19:25:31-07:00 — Add identity device-link: acquire an OpenPower identity token via the website, not a local secret — checkpoint 3/5
 2026-01-10T16:32:49-07:00 — Rename package localcloud -> apx; remove OpenPower-product coupling from core — checkpoint 4/4
+2026-01-11T22:06:49-07:00 — Rename package localcloud -> apx; remove OpenPower-product coupling from core — checkpoint 2/4
