@@ -35,3 +35,4 @@ recovered original commit dates.
 2026-01-09T19:25:31-07:00 — Add identity device-link: acquire an OpenPower identity token via the website, not a local secret — checkpoint 3/5
 2026-01-10T16:32:49-07:00 — Rename package localcloud -> apx; remove OpenPower-product coupling from core — checkpoint 4/4
 2026-01-11T22:06:49-07:00 — Rename package localcloud -> apx; remove OpenPower-product coupling from core — checkpoint 2/4
+2026-01-12T07:10:51-07:00 — Rename package localcloud -> apx; remove OpenPower-product coupling from core — checkpoint 1/4
