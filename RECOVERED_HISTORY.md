@@ -37,3 +37,4 @@ recovered original commit dates.
 2026-01-11T22:06:49-07:00 — Rename package localcloud -> apx; remove OpenPower-product coupling from core — checkpoint 2/4
 2026-01-12T07:10:51-07:00 — Rename package localcloud -> apx; remove OpenPower-product coupling from core — checkpoint 1/4
 2026-01-12T13:08:05-07:00 — Rename package localcloud -> apx; remove OpenPower-product coupling from core — checkpoint 3/4
+2026-01-14T21:57:52-07:00 — Add Paddle and Purelymail integrations; extend Cloudflare/Discord action surface — checkpoint 2/3
