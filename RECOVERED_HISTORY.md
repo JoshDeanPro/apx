@@ -54,3 +54,4 @@ recovered original commit dates.
 2026-02-13T14:33:00-07:00 — Formalize APX as a Founder-Stewarded open-source project (MPL-2.0) — checkpoint 1/3
 2026-02-19T23:00:31-07:00 — Fix Action Providers docs: op doesn't have provider commands yet, stale roadmap note — checkpoint 1/2
 2026-02-20T12:29:30-07:00 — Formalize APX as a Founder-Stewarded open-source project (MPL-2.0) — checkpoint 3/3
+2026-02-20T13:55:08-07:00 — Fix Action Providers docs: op doesn't have provider commands yet, stale roadmap note — checkpoint 2/2
