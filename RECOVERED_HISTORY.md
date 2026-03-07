@@ -73,3 +73,4 @@ recovered original commit dates.
 2026-03-04T18:55:55-07:00 — Consolidate all APX technology into this repo — checkpoint 1/3
 2026-03-04T20:18:17-07:00 — Close APX protocol durability and interop gaps — checkpoint 3/7
 2026-03-06T08:14:36-07:00 — Checkpoint before consolidating APX technology into one repo — checkpoint 1/3
+2026-03-07T09:10:52-07:00 — Define and implement APX Protocol 0.1 — checkpoint 3/6
