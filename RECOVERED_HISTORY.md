@@ -80,3 +80,4 @@ recovered original commit dates.
 2026-03-10T08:43:34-06:00 — Close APX protocol durability and interop gaps — checkpoint 1/7
 2026-03-22T19:00:49-06:00 — Release APX: protocol v0.1, visualizers, doctor, self-update, and governance — checkpoint 4/5
 2026-03-26T08:37:01-06:00 — Add adapt_config.py: make a copied config describe THIS machine — checkpoint 3/5
+2026-03-26T14:52:18-06:00 — Add adapt_config.py: make a copied config describe THIS machine — checkpoint 1/5
