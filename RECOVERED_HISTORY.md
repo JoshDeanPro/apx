@@ -83,3 +83,4 @@ recovered original commit dates.
 2026-03-26T14:52:18-06:00 — Add adapt_config.py: make a copied config describe THIS machine — checkpoint 1/5
 2026-03-27T07:24:23-06:00 — Add adapt_config.py: make a copied config describe THIS machine — checkpoint 5/5
 2026-03-28T08:51:02-06:00 — Add adapt_config.py: make a copied config describe THIS machine — checkpoint 4/5
+2026-03-28T11:15:57-06:00 — Add adapt_config.py: make a copied config describe THIS machine — checkpoint 2/5
