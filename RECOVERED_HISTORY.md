@@ -86,3 +86,4 @@ recovered original commit dates.
 2026-03-28T11:15:57-06:00 — Add adapt_config.py: make a copied config describe THIS machine — checkpoint 2/5
 2026-03-29T14:08:05-06:00 — Release APX: protocol v0.1, visualizers, doctor, self-update, and governance — checkpoint 3/5
 2026-03-29T19:41:15-06:00 — Release APX: protocol v0.1, visualizers, doctor, self-update, and governance — checkpoint 2/5
+2026-03-30T15:10:31-06:00 — Release APX: protocol v0.1, visualizers, doctor, self-update, and governance — checkpoint 5/5
