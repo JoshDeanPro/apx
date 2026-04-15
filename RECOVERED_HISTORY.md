@@ -93,3 +93,4 @@ recovered original commit dates.
 2026-04-11T08:37:01-06:00 — fix(security,cli): complete security audit and CLI exit code standardization — checkpoint 2/2
 2026-04-13T17:38:37-06:00 — fix(system,process): handle OS permission errors gracefully in scheduler discovery — checkpoint 1/5
 2026-04-14T13:40:13-06:00 — fix(security,cli): complete security audit and CLI exit code standardization — checkpoint 1/2
+2026-04-15T16:12:21-06:00 — fix(databases,tui,voice): add graceful credential handling and dynamic binary resolution — checkpoint 3/3
