@@ -98,3 +98,4 @@ recovered original commit dates.
 2026-04-15T23:55:14-06:00 — fix(system,process): handle OS permission errors gracefully in scheduler discovery — checkpoint 2/5
 2026-04-16T10:11:57-06:00 — fix(databases,tui,voice): add graceful credential handling and dynamic binary resolution — checkpoint 2/3
 2026-04-17T14:10:10-06:00 — fix(system,process): handle OS permission errors gracefully in scheduler discovery — checkpoint 4/5
+2026-04-19T08:51:43-06:00 — docs: update quickstart install commands with live repo url — checkpoint 3/3
