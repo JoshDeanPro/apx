@@ -100,3 +100,4 @@ recovered original commit dates.
 2026-04-17T14:10:10-06:00 — fix(system,process): handle OS permission errors gracefully in scheduler discovery — checkpoint 4/5
 2026-04-19T08:51:43-06:00 — docs: update quickstart install commands with live repo url — checkpoint 3/3
 2026-04-22T21:06:31-06:00 — docs: update quickstart install commands with live repo url — checkpoint 2/3
+2026-04-28T19:33:14-06:00 — docs: update quickstart install commands with live repo url — checkpoint 1/3
