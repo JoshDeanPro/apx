@@ -103,3 +103,4 @@ recovered original commit dates.
 2026-04-28T19:33:14-06:00 — docs: update quickstart install commands with live repo url — checkpoint 1/3
 2026-05-18T22:50:25-06:00 — feat(settings): add apx settings with doctor, update, auto-check on launch, and canonical repo sync — checkpoint 4/5
 2026-05-19T13:37:24-06:00 — feat(settings): add apx settings with doctor, update, auto-check on launch, and canonical repo sync — checkpoint 5/5
+2026-05-20T09:31:07-06:00 — feat(settings): add apx settings with doctor, update, auto-check on launch, and canonical repo sync — checkpoint 1/5
