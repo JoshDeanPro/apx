@@ -108,3 +108,4 @@ recovered original commit dates.
 2026-05-20T20:01:27-06:00 — feat(settings): add apx settings with doctor, update, auto-check on launch, and canonical repo sync — checkpoint 2/5
 2026-05-20T21:30:06-06:00 — chore(release): bump to v0.8.1 — checkpoint 1/2
 2026-05-20T23:15:04-06:00 — fix(tui): handle KeyboardInterrupt/EOFError gracefully and improve update formatting — checkpoint 3/4
+2026-05-21T17:04:29-06:00 — fix(tui): handle KeyboardInterrupt/EOFError gracefully and improve update formatting — checkpoint 2/4
