@@ -110,3 +110,4 @@ recovered original commit dates.
 2026-05-20T23:15:04-06:00 — fix(tui): handle KeyboardInterrupt/EOFError gracefully and improve update formatting — checkpoint 3/4
 2026-05-21T17:04:29-06:00 — fix(tui): handle KeyboardInterrupt/EOFError gracefully and improve update formatting — checkpoint 2/4
 2026-05-21T19:47:04-06:00 — fix(tui): handle KeyboardInterrupt/EOFError gracefully and improve update formatting — checkpoint 4/4
+2026-05-22T09:44:22-06:00 — feat(settings): add apx settings with doctor, update, auto-check on launch, and canonical repo sync — checkpoint 3/5
