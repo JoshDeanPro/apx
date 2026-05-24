@@ -112,3 +112,4 @@ recovered original commit dates.
 2026-05-21T19:47:04-06:00 — fix(tui): handle KeyboardInterrupt/EOFError gracefully and improve update formatting — checkpoint 4/4
 2026-05-22T09:44:22-06:00 — feat(settings): add apx settings with doctor, update, auto-check on launch, and canonical repo sync — checkpoint 3/5
 2026-05-23T08:40:14-06:00 — chore(release): bump to v0.8.1 — checkpoint 2/2
+2026-05-24T15:23:09-06:00 — feat(protocol): add cryptographic Ed25519/HMAC signed receipts, apxd unix socket daemon, and protocol conformance suite — checkpoint 2/2
