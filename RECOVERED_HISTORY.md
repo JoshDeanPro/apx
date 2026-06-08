@@ -115,3 +115,4 @@ recovered original commit dates.
 2026-05-24T15:23:09-06:00 — feat(protocol): add cryptographic Ed25519/HMAC signed receipts, apxd unix socket daemon, and protocol conformance suite — checkpoint 2/2
 2026-05-24T20:10:04-06:00 — feat(protocol): add cryptographic Ed25519/HMAC signed receipts, apxd unix socket daemon, and protocol conformance suite — checkpoint 1/2
 2026-06-02T17:44:00-06:00 — feat(update): check against public live release manifest by default — checkpoint 4/7
+2026-06-08T09:04:36-06:00 — feat(update): check against public live release manifest by default — checkpoint 3/7
