@@ -119,3 +119,4 @@ recovered original commit dates.
 2026-06-08T09:18:33-06:00 — feat(update): check against public live release manifest by default — checkpoint 5/7
 2026-06-08T18:02:56-06:00 — fix(tui): remove checkboxes from navigation menus and skip non-selectable items — checkpoint 2/3
 2026-06-09T16:33:15-06:00 — feat(update): check against public live release manifest by default — checkpoint 1/7
+2026-06-09T19:14:22-06:00 — fix(tui): remove checkboxes from navigation menus and skip non-selectable items — checkpoint 1/3
