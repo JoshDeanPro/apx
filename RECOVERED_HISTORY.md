@@ -122,3 +122,4 @@ recovered original commit dates.
 2026-06-09T19:14:22-06:00 — fix(tui): remove checkboxes from navigation menus and skip non-selectable items — checkpoint 1/3
 2026-06-10T07:26:29-06:00 — fix(tui): remove checkboxes from navigation menus and skip non-selectable items — checkpoint 3/3
 2026-06-11T16:00:39-06:00 — feat(update): check against public live release manifest by default — checkpoint 2/7
+2026-06-11T19:19:18-06:00 — feat(update): check against public live release manifest by default — checkpoint 7/7
