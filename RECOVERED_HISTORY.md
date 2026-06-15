@@ -125,3 +125,4 @@ recovered original commit dates.
 2026-06-11T19:19:18-06:00 — feat(update): check against public live release manifest by default — checkpoint 7/7
 2026-06-12T17:59:42-06:00 — feat(update): check against public live release manifest by default — checkpoint 6/7
 2026-06-14T08:16:21-06:00 — fix(tui): clarify navigation footer text and add right/left/vim arrow navigation — checkpoint 1/2
+2026-06-14T23:44:42-06:00 — fix(tui): clarify navigation footer text and add right/left/vim arrow navigation — checkpoint 2/2
