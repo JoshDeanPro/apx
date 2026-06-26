@@ -126,3 +126,4 @@ recovered original commit dates.
 2026-06-12T17:59:42-06:00 — feat(update): check against public live release manifest by default — checkpoint 6/7
 2026-06-14T08:16:21-06:00 — fix(tui): clarify navigation footer text and add right/left/vim arrow navigation — checkpoint 1/2
 2026-06-14T23:44:42-06:00 — fix(tui): clarify navigation footer text and add right/left/vim arrow navigation — checkpoint 2/2
+2026-06-26T08:47:17-06:00 — feat(hardware,localcloud): add on-device compute awareness and zero-knowledge LocalCloud mesh vault — checkpoint 1/4
