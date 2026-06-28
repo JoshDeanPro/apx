@@ -129,3 +129,4 @@ recovered original commit dates.
 2026-06-26T08:47:17-06:00 — feat(hardware,localcloud): add on-device compute awareness and zero-knowledge LocalCloud mesh vault — checkpoint 1/4
 2026-06-28T10:28:47-06:00 — chore(privacy): scrub internal identifiers and generalize standing agent recipes — checkpoint 1/2
 2026-06-28T14:04:05-06:00 — chore(privacy): scrub internal identifiers and generalize standing agent recipes — checkpoint 2/2
+2026-06-28T16:08:54-06:00 — feat(hardware,localcloud): add on-device compute awareness and zero-knowledge LocalCloud mesh vault — checkpoint 2/4
