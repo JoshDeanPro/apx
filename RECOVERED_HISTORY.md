@@ -127,3 +127,4 @@ recovered original commit dates.
 2026-06-14T08:16:21-06:00 — fix(tui): clarify navigation footer text and add right/left/vim arrow navigation — checkpoint 1/2
 2026-06-14T23:44:42-06:00 — fix(tui): clarify navigation footer text and add right/left/vim arrow navigation — checkpoint 2/2
 2026-06-26T08:47:17-06:00 — feat(hardware,localcloud): add on-device compute awareness and zero-knowledge LocalCloud mesh vault — checkpoint 1/4
+2026-06-28T10:28:47-06:00 — chore(privacy): scrub internal identifiers and generalize standing agent recipes — checkpoint 1/2
