@@ -131,3 +131,4 @@ recovered original commit dates.
 2026-06-28T14:04:05-06:00 — chore(privacy): scrub internal identifiers and generalize standing agent recipes — checkpoint 2/2
 2026-06-28T16:08:54-06:00 — feat(hardware,localcloud): add on-device compute awareness and zero-knowledge LocalCloud mesh vault — checkpoint 2/4
 2026-06-28T22:46:44-06:00 — feat(tui): overhaul navigation architecture to unified Services, Devices, Passwords, and Channels — checkpoint 1/2
+2026-06-29T13:57:58-06:00 — feat(tui): overhaul navigation architecture to unified Services, Devices, Passwords, and Channels — checkpoint 2/2
