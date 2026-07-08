@@ -137,3 +137,4 @@ recovered original commit dates.
 2026-07-08T08:33:31-06:00 — fix(tui): resolve syntax and finalize simplified Services, Devices, Passwords, and Channels navigation — checkpoint 2/2
 2026-07-08T11:45:37-06:00 — refactor: split APX protocol from OpenPower LocalCloud — checkpoint 4/4
 2026-07-08T15:00:46-06:00 — fix(tui): resolve syntax and finalize simplified Services, Devices, Passwords, and Channels navigation — checkpoint 1/2
+2026-07-08T17:01:34-06:00 — refactor: split APX protocol from OpenPower LocalCloud — checkpoint 3/4
