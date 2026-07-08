@@ -134,3 +134,4 @@ recovered original commit dates.
 2026-06-29T13:57:58-06:00 — feat(tui): overhaul navigation architecture to unified Services, Devices, Passwords, and Channels — checkpoint 2/2
 2026-07-01T11:28:36-06:00 — refactor: split APX protocol from OpenPower LocalCloud — checkpoint 2/4
 2026-07-02T21:33:22-06:00 — feat(hardware,localcloud): add on-device compute awareness and zero-knowledge LocalCloud mesh vault — checkpoint 3/4
+2026-07-08T08:33:31-06:00 — fix(tui): resolve syntax and finalize simplified Services, Devices, Passwords, and Channels navigation — checkpoint 2/2
