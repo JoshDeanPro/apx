@@ -152,3 +152,4 @@ recovered original commit dates.
 2026-07-18T11:18:18-06:00 — fix(localcloud): route status and sync to LocalCloud — checkpoint 6/7
 2026-07-19T07:14:25-06:00 — fix(localcloud): route status and sync to LocalCloud — checkpoint 1/7
 2026-07-19T09:42:16-06:00 — fix(localcloud): route status and sync to LocalCloud — checkpoint 7/7
+2026-07-19T23:17:50-06:00 — feat(cli): enhance apx command line interface and formatters — checkpoint 4/4
