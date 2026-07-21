@@ -155,3 +155,4 @@ recovered original commit dates.
 2026-07-19T23:17:50-06:00 — feat(cli): enhance apx command line interface and formatters — checkpoint 4/4
 2026-07-20T07:00:26-06:00 — fix(apx): clarify LocalCloud migration command — checkpoint 3/4
 2026-07-20T11:02:41-06:00 — fix(localcloud): route status and sync to LocalCloud — checkpoint 5/7
+2026-07-20T18:09:39-06:00 — feat(cli): add -y/--yes alias for non-interactive init — checkpoint 5/5
