@@ -158,3 +158,4 @@ recovered original commit dates.
 2026-07-20T18:09:39-06:00 — feat(cli): add -y/--yes alias for non-interactive init — checkpoint 5/5
 2026-07-21T07:50:57-06:00 — fix(apx): clarify LocalCloud migration command — checkpoint 1/4
 2026-07-21T10:28:52-06:00 — feat(cli): add -y/--yes alias for non-interactive init — checkpoint 3/5
+2026-07-21T23:21:44-06:00 — fix(apx): clarify LocalCloud migration command — checkpoint 4/4
