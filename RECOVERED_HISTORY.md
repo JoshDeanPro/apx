@@ -164,3 +164,4 @@ recovered original commit dates.
 2026-07-23T21:49:05-06:00 — fix(localcloud): route status and sync to LocalCloud — checkpoint 3/7
 2026-07-25T19:13:15-06:00 — feat(cli): restore interactive TUI and human-friendly rich CLI formatters — checkpoint 4/4
 2026-07-26T14:54:28-06:00 — feat(cli): add -y/--yes alias for non-interactive init — checkpoint 1/5
+2026-07-26T16:29:19-06:00 — feat(cli): add -y/--yes alias for non-interactive init — checkpoint 2/5
