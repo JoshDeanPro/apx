@@ -166,3 +166,4 @@ recovered original commit dates.
 2026-07-26T14:54:28-06:00 — feat(cli): add -y/--yes alias for non-interactive init — checkpoint 1/5
 2026-07-26T16:29:19-06:00 — feat(cli): add -y/--yes alias for non-interactive init — checkpoint 2/5
 2026-07-27T11:21:58-06:00 — chore(license): adopt standard MIT open source license with trademark and ownership preservation — checkpoint 3/4
+2026-07-27T17:40:17-06:00 — feat(cli): restore interactive TUI and human-friendly rich CLI formatters — checkpoint 1/4
