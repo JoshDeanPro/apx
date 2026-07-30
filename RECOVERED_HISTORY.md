@@ -168,3 +168,4 @@ recovered original commit dates.
 2026-07-27T11:21:58-06:00 — chore(license): adopt standard MIT open source license with trademark and ownership preservation — checkpoint 3/4
 2026-07-27T17:40:17-06:00 — feat(cli): restore interactive TUI and human-friendly rich CLI formatters — checkpoint 1/4
 2026-07-27T17:45:30-06:00 — feat(cli): enhance apx command line interface and formatters — checkpoint 1/4
+2026-07-30T08:18:14-06:00 — chore(license): adopt standard MIT open source license with trademark and ownership preservation — checkpoint 1/4
