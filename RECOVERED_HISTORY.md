@@ -173,3 +173,4 @@ recovered original commit dates.
 2026-08-02T14:12:54-06:00 — test: add validation tests for daily life resources and cleanup imports — checkpoint 3/3
 2026-08-03T13:35:37-06:00 — chore(copy): remove em dashes and simplify phrasing — checkpoint 4/4
 2026-08-03T15:02:12-06:00 — chore(license): adopt standard MIT open source license with trademark and ownership preservation — checkpoint 2/4
+2026-08-05T15:54:48-06:00 — chore(copy): remove em dashes and simplify phrasing — checkpoint 1/4
