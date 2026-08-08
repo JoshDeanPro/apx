@@ -176,3 +176,4 @@ recovered original commit dates.
 2026-08-05T15:54:48-06:00 — chore(copy): remove em dashes and simplify phrasing — checkpoint 1/4
 2026-08-05T18:08:06-06:00 — chore: remove duplicate macOS .DS_Store ignore pattern from .gitignore — checkpoint 5/5
 2026-08-06T23:24:14-06:00 — chore(copy): remove em dashes and simplify phrasing — checkpoint 3/4
+2026-08-07T23:31:02-06:00 — chore(copy): remove em dashes and simplify phrasing — checkpoint 2/4
