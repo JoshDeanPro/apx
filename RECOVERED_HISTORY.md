@@ -178,3 +178,4 @@ recovered original commit dates.
 2026-08-06T23:24:14-06:00 — chore(copy): remove em dashes and simplify phrasing — checkpoint 3/4
 2026-08-07T23:31:02-06:00 — chore(copy): remove em dashes and simplify phrasing — checkpoint 2/4
 2026-08-09T16:39:11-06:00 — chore: remove duplicate macOS .DS_Store ignore pattern from .gitignore — checkpoint 2/5
+2026-08-09T19:17:16-06:00 — chore(license): adopt standard MIT open source license with trademark and ownership preservation — checkpoint 4/4
