@@ -180,3 +180,4 @@ recovered original commit dates.
 2026-08-09T16:39:11-06:00 — chore: remove duplicate macOS .DS_Store ignore pattern from .gitignore — checkpoint 2/5
 2026-08-09T19:17:16-06:00 — chore(license): adopt standard MIT open source license with trademark and ownership preservation — checkpoint 4/4
 2026-08-10T14:00:07-06:00 — refactor: add from_dict serialization filters for StructuredError, ActionReceipt, and PreparedAction — checkpoint 2/2
+2026-08-10T14:03:33-06:00 — docs: update LICENSE badge in README to reflect MIT License — checkpoint 2/4
