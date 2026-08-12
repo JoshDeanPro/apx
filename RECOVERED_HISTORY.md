@@ -186,3 +186,4 @@ recovered original commit dates.
 2026-08-11T18:34:59-06:00 — test: add validation tests for daily life resources and cleanup imports — checkpoint 1/3
 2026-08-12T07:17:50-06:00 — refactor: add from_dict serialization filters for StructuredError, ActionReceipt, and PreparedAction — checkpoint 1/2
 2026-08-12T12:28:20-06:00 — chore: remove duplicate macOS .DS_Store ignore pattern from .gitignore — checkpoint 4/5
+2026-08-12T12:40:54-06:00 — chore: remove duplicate macOS .DS_Store ignore pattern from .gitignore — checkpoint 3/5
