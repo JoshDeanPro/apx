@@ -188,3 +188,4 @@ recovered original commit dates.
 2026-08-12T12:28:20-06:00 — chore: remove duplicate macOS .DS_Store ignore pattern from .gitignore — checkpoint 4/5
 2026-08-12T12:40:54-06:00 — chore: remove duplicate macOS .DS_Store ignore pattern from .gitignore — checkpoint 3/5
 2026-08-12T15:24:49-06:00 — docs: update LICENSE badge in README to reflect MIT License — checkpoint 4/4
+2026-08-12T15:50:33-06:00 — chore: remove duplicate macOS .DS_Store ignore pattern from .gitignore — checkpoint 1/5
