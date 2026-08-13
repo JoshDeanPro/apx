@@ -27,6 +27,7 @@ from .providers import ActionProvider, ProviderManifest, RemoteProvider, validat
 from .policy import PolicyEngine, ScopedRule, scope_values
 from .state import SECURITY_STATES, StateStore
 from .system import connection_list, connection_status, scheduler_inspect, scheduler_list, tailscale_status
+from .fabric import CapabilityGraph
 
 
 class APX:
@@ -60,6 +61,7 @@ class APX:
         self._load_providers()
         self.plugin_manager = PluginManager(self.actions,self.events,self)
         self.plugins = self.plugin_manager.load(config) if plugins else []
+        self.bridges={}
 
     def _load_providers(self) -> None:
         for value in self.config.get("providers",[]):
@@ -107,7 +109,7 @@ class APX:
         self.actions.register(RegisteredAction("group.inspect","List resources in a group",self.group_inspect,obj({"group":string},("group",))))
         self.actions.register(RegisteredAction("group.add","Add a resource to a group",lambda resource,group:self.group_change(resource,group,True),obj({"resource":string,"group":string},("resource","group")),False,False))
         self.actions.register(RegisteredAction("group.remove","Remove a resource from a group",lambda resource,group:self.group_change(resource,group,False),obj({"resource":string,"group":string},("resource","group")),False,False))
-        self.actions.register(RegisteredAction("resource.list","List/filter AXP resources",self.resource_list,obj({"kind":string,"group":string,"tag":string})))
+        self.actions.register(RegisteredAction("resource.list","List/filter APX resources",self.resource_list,obj({"kind":string,"group":string,"tag":string})))
         self.actions.register(RegisteredAction("actor.whoami","Describe an actor and its assigned roles",self.whoami,obj({"subject":string})))
         self.actions.register(RegisteredAction("policy.explain","Explain why an action would be allowed or denied for an actor",self.policy_explain,obj({"subject":string,"requested_action":string,"scope":{"type":"object"}},("subject","requested_action"))))
         self.actions.register(RegisteredAction("state.show","Show current system/security state and history",self.state_show,obj({})))
@@ -252,6 +254,33 @@ class APX:
         return manifest
 
     def provider_manifests(self) -> list[ProviderManifest]: return [provider.manifest() for provider in self.providers.values()]
+
+    def register_bridge(self,bridge) -> None:
+        if bridge.id in self.bridges: raise ValueError(f"bridge {bridge.id!r} already registered")
+        bridge.register_actions(self.actions); self.bridges[bridge.id]=bridge
+
+    def capability_graph(self) -> CapabilityGraph:
+        graph=CapabilityGraph()
+        resources=self.resources()
+        for resource in resources: graph.add_resource(resource)
+        for action in self.actions.list(): graph.add_action(action.definition())
+        # Existing discovered host capabilities remain first-class even when they do
+        # not map to an invokable Action yet.
+        for host in self.hosts:
+            for capability in self.capabilities(host):
+                if capability.resource in graph.resources: graph.add_capability(capability)
+        for provider in self.providers.values():
+            manifest=provider.manifest()
+            for resource in manifest.resources:
+                for action in manifest.actions:
+                    if not action.resource_type or action.resource_type==resource.kind:
+                        key=f"{resource.id}:{action.resource_type or 'actions'}"
+                        existing=graph.capabilities.get(key)
+                        actions=tuple(sorted(set((existing.actions if existing else ())+ (action.id,))))
+                        graph.capabilities[key]=Capability(action.resource_type or "actions",resource.id,actions=actions,
+                            provenance=action.provenance,reliability=1.0,source=manifest.provider.id)
+        for bridge in self.bridges.values(): graph.add_bridge(bridge)
+        return graph
 
     def provider_actor(self, request: ActionRequest) -> ActorDescriptor:
         actor=request.actor or self.actors.resolve_default(); profile=self.actors.get(actor)

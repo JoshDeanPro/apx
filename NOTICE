@@ -15,3 +15,8 @@ This software depends on third-party packages (see pyproject.toml),
 each of which remains under its own respective license. Those
 third-party packages are not part of APX's Covered Software and their
 copyright is not claimed here.
+
+The optional browser Bridge design references public patterns from Browser Use
+(Copyright 2024 Gregor Zunic, MIT License) and Playwright (Microsoft Corporation,
+Apache License 2.0). APX does not vendor or copy either project. Their optional
+packages, if installed by a user, remain governed by their upstream licenses.

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apx"
-version = "0.6.0"
-description = "Use your computers and services together, locally and through MCP."
+version = "0.7.0"
+description = "A universal, permissioned capability and Action fabric."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MPL-2.0"
@@ -23,7 +23,7 @@ apx = "apx.cli:main"
 where = ["src"]
 
 [tool.setuptools.data-files]
-"share/apx/spec/0.1" = ["spec/protocol.md", "spec/http.md", "spec/conformance.md"]
+"share/apx/spec/0.1" = ["spec/protocol.md", "spec/http.md", "spec/conformance.md", "spec/fabric.md", "spec/personal-context.md"]
 "share/apx/spec/0.1/schemas" = [
     "spec/schemas/action-request.schema.json",
     "spec/schemas/action-result.schema.json",

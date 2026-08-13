@@ -10,6 +10,18 @@ and optional Authority. Clients express intent. Providers establish truth about
 their Resources and always retain their business rules. OpenPower, MCP, HTTP,
 local calls, and SSH Nodes use the same Action semantics.
 
+The universal Capability Graph provides one searchable space across machines,
+Providers, applications, devices, bridges, and reusable components. Native paths rank
+above bridges; browser/computer fallback is explicit and never silently weakens a
+consequential Action. See [the fabric specification](spec/fabric.md), [Bridges](docs/bridges.md),
+and [Personal Context](spec/personal-context.md).
+
+Run the six-world proof with `python -m apx.examples.universal_fabric`. It
+exercises structured web interaction, a stateful Home Assistant simulator, the
+reference Action Provider, local-only content selection, and validated Action
+component registration. Its computer entry prints the safe `host.status`
+command for an explicitly configured SSH Node; APX never invents a target.
+
 It is a package, not a control-plane server. The base runtime is Python's
 standard library. It does not install or require Docker, a database, an HTTP
 service, or an agent on remote machines.

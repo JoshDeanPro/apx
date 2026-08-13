@@ -18,7 +18,7 @@ class DiscordWebhookPlugin:
     patterns: tuple[str,...] = DEFAULT_PATTERNS
     sender: Callable[[str,dict[str,Any]],None] | None = None
     name: str = "discord_webhook"
-    metadata=PluginMetadata("discord_webhook","0.2.0","Send selected AXP events through a Discord webhook.",events_listened=DEFAULT_PATTERNS,credentials=("discord_webhook",))
+    metadata=PluginMetadata("discord_webhook","0.2.0","Send selected APX events through a Discord webhook.",events_listened=DEFAULT_PATTERNS,credentials=("discord_webhook",))
 
     def __post_init__(self) -> None:
         # Metadata follows a configured reference name without resolving it.

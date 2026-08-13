@@ -44,7 +44,12 @@ STANDARD_ERROR_CODES = (
 # Where an Action's implementation actually comes from -- lets a client tell "Discord's own
 # native APX action" apart from "an AI clicking through a webpage" without APX Core knowing
 # anything about either. Descriptive only; not a trust ranking APX itself enforces.
-PROVENANCE_KINDS = ("native_provider","official_plugin","community_plugin","local_component","generated_component","browser_fallback")
+PROVENANCE_KINDS = (
+    "native_apx", "native_provider", "official_api", "official_sdk",
+    "standard_bridge", "local_native", "official_plugin", "community_plugin",
+    "local_component", "generated_component", "browser_component",
+    "browser_fallback", "computer_fallback",
+)
 
 EVENT_NAMES = ("policy.allowed","policy.denied","system.state_changed","security.incident_started","security.lockdown_started","security.lockdown_ended","security.break_glass_started","secret.updated","secret.rotated","secret.revoked","credential.rotation_started","credential.rotation_completed","credential.rotation_failed","actor.connected",
     "identity.authenticated","identity.authentication_failed","identity.enrollment_requested","identity.enrollment_approved","identity.enrollment_denied","identity.linked","identity.unlinked",
@@ -144,6 +149,15 @@ class Capability:
     description: str = ""
     available: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
+    actions: tuple[str, ...] = ()
+    provenance: str = "local_native"
+    reliability: float = 1.0
+    source: str | None = None
+    health: str = "healthy"
+
+    def __post_init__(self) -> None:
+        if self.provenance not in PROVENANCE_KINDS: raise ValueError(f"invalid provenance {self.provenance!r}")
+        if not 0 <= self.reliability <= 1: raise ValueError("reliability must be between 0 and 1")
 
     def to_dict(self) -> dict[str, Any]:
         return {"apx":APX_PROTOCOL_VERSION,"type":"capability",**asdict(self)}
@@ -165,7 +179,7 @@ class Actor:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "Actor":
         if value.get("apx") != APX_PROTOCOL_VERSION or value.get("type") != "actor":
-            raise ValueError("not an AXP 0.1 actor")
+            raise ValueError("not an APX 0.1 actor")
         return cls(id=value["id"],kind=value["kind"],display_name=value.get("display_name"))
 
 
@@ -286,7 +300,7 @@ class ActionRequest:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ActionRequest":
         if value.get("apx") != APX_PROTOCOL_VERSION or value.get("type") != "action.request":
-            raise ValueError("not an AXP 0.1 action.request")
+            raise ValueError("not an APX 0.1 action.request")
         known=("action","target","input","request_id","created_at","actor","source","correlation_id","auth_context","delegated_by","client","device","mission","confirmation","expires_at","nonce","prepared_action_id","idempotency_key","authoritative_state_version","protocol_version")
         values={key:value[key] for key in known if key in value}
         if value.get("credential"): values["credential"]=CredentialHandle.from_dict(value["credential"])
@@ -354,7 +368,7 @@ class ActionResult:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ActionResult":
         if value.get("apx") != APX_PROTOCOL_VERSION or value.get("type") != "action.result":
-            raise ValueError("not an AXP 0.1 action.result")
+            raise ValueError("not an APX 0.1 action.result")
         error=StructuredError.from_dict(value["error"]) if value.get("error") else None
         receipt=None
         if value.get("receipt"):

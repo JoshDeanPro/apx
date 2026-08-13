@@ -55,7 +55,7 @@ class PluginMetadata:
     name: str
     version: str
     description: str
-    axp: str = "0.1"
+    apx: str = "0.1"
     resources: tuple[str,...] = ()
     actions: tuple[str,...] = ()
     events_emitted: tuple[str,...] = ()
@@ -84,7 +84,7 @@ class PluginManager:
             metadata=getattr(plugin,"metadata",None)
             if metadata is None: metadata=PluginMetadata(name,getattr(plugin,"version","unknown"),getattr(plugin,"description",name))
             if isinstance(metadata,dict): metadata=PluginMetadata(**metadata)
-            if metadata.axp!="0.1": raise ValueError(f"plugin requires unsupported AXP {metadata.axp}")
+            if metadata.apx!="0.1": raise ValueError(f"plugin requires unsupported APX {metadata.apx}")
             self.metadata[name]=metadata
             if hasattr(plugin,"setup"): plugin.setup(api)
             elif hasattr(plugin,"register"): plugin.register(self.actions)
