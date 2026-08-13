@@ -4,13 +4,12 @@ import json
 import os
 import re
 import subprocess
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Callable
 
 from .discovery import inspect_host
-from .models import ActionResult, Host, Project
+from .axp import ActionDefinition
+from .models import Host, Project
 from .transports import transport_for
 
 
@@ -18,7 +17,7 @@ class ActionError(RuntimeError): pass
 
 
 @dataclass(frozen=True)
-class Action:
+class RegisteredAction:
     name: str
     description: str
     handler: Callable[..., Any]
@@ -26,16 +25,23 @@ class Action:
     read_only: bool = True
     destructive: bool = False
 
+    def definition(self) -> ActionDefinition:
+        return ActionDefinition(self.name,self.description,self.schema,self.read_only,self.destructive)
+
 
 class ActionRegistry:
-    def __init__(self): self._actions: dict[str, Action] = {}
-    def register(self, action: Action) -> None:
+    def __init__(self): self._actions: dict[str, RegisteredAction] = {}; self._aliases: dict[str,str] = {}
+    def register(self, action: RegisteredAction) -> None:
         if action.name in self._actions: raise ValueError(f"duplicate action {action.name}")
         self._actions[action.name] = action
-    def get(self, name: str) -> Action:
+    def get(self, name: str) -> RegisteredAction:
+        name=self._aliases.get(name,name)
         if name not in self._actions: raise ActionError(f"unknown action {name!r}")
         return self._actions[name]
-    def list(self) -> list[Action]: return list(self._actions.values())
+    def list(self) -> list[RegisteredAction]: return list(self._actions.values())
+    def alias(self, old: str, canonical: str) -> None:
+        if canonical not in self._actions: raise ValueError(f"unknown canonical action {canonical}")
+        self._aliases[old]=canonical
 
 
 def _unit(value: str) -> str:
@@ -165,7 +171,7 @@ def build_registry(core: CoreActions) -> ActionRegistry:
     r=ActionRegistry(); obj=lambda props,required=[]:{"type":"object","properties":props,"required":required,"additionalProperties":False}; s={"type":"string"}
     specs=[
       ("host.list","List configured hosts",core.host_list,obj({}),True,False),
-      ("host.info","Discover host identity and capabilities",core.host_info,obj({"host":s},["host"]),True,False),
+      ("host.inspect","Discover host identity and capabilities",core.host_info,obj({"host":s},["host"]),True,False),
       ("host.status","Read host status",core.host_status,obj({"host":s},["host"]),True,False),
       ("service.list","List services",core.service_list,obj({"host":s},["host"]),True,False),
       ("service.status","Read service status",core.service_status,obj({"host":s,"service":s},["host","service"]),True,False),
@@ -180,5 +186,9 @@ def build_registry(core: CoreActions) -> ActionRegistry:
       ("project.discover","Discover repositories and project manifests",core.project_discover,obj({"host":s,"roots":{"type":"array","items":s}},["host"]),True,False),
       ("host.shutdown","Shut down a host",core.host_shutdown,obj({"host":s},["host"]),False,True),
     ]
-    for spec in specs: r.register(Action(*spec))
+    for spec in specs: r.register(RegisteredAction(*spec))
+    r.alias("host.info","host.inspect")
     return r
+
+
+Action = RegisteredAction

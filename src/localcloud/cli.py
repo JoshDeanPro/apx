@@ -16,6 +16,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config",help="TOML configuration path")
     parser.add_argument("--yes",action="store_true",help="confirm destructive actions")
     sub=parser.add_subparsers(dest="command",required=True)
+    init=sub.add_parser("init",help="discover this machine and create minimal configuration")
+    init.add_argument("--output",default="localcloud.toml")
+    init.add_argument("--host",action="append",default=[],metavar="NAME=SSH_TARGET")
+    init.add_argument("--non-interactive",action="store_true")
+    init.add_argument("--force",action="store_true")
+    sub.add_parser("doctor",help="diagnose configuration, hosts, plugins, and MCP")
     sub.add_parser("hosts",help="list configured hosts")
     inspect=sub.add_parser("inspect",help="discover a host"); inspect.add_argument("host")
     status=sub.add_parser("status",help="read host status"); status.add_argument("host")
@@ -30,13 +36,21 @@ def main(argv: list[str] | None = None) -> int:
     shutdown=sub.add_parser("shutdown",help="shut down a host (requires --yes)"); shutdown.add_argument("host")
     sub.add_parser("actions",help="list the shared action catalog")
     sub.add_parser("mcp",help="serve MCP over stdio")
-    args=parser.parse_args(argv); cloud=LocalCloud(args.config)
+    args=parser.parse_args(argv)
+    if args.command=="init":
+        from .setup import initialize
+        try: output(initialize(args.output,ssh_hosts=args.host,interactive=not args.non_interactive,force=args.force)); return 0
+        except Exception as error: output({"ok":False,"error":str(error)}); return 1
+    if args.command=="doctor":
+        from .doctor import diagnose
+        result=diagnose(args.config); output(result); return 0 if result["ok"] else 1
+    cloud=LocalCloud(args.config)
     if args.command=="mcp": return MCPServer(cloud).serve()
     if args.command=="actions":
         output({"actions":[{"name":a.name,"description":a.description,"read_only":a.read_only,"destructive":a.destructive} for a in cloud.actions.list()]}); return 0
     if args.command=="service": name=f"service.{args.verb}"; inputs={"host":args.host,"service":args.service}
     elif args.command=="hosts": name,inputs="host.list",{}
-    elif args.command=="inspect": name,inputs="host.info",{"host":args.host}
+    elif args.command=="inspect": name,inputs="host.inspect",{"host":args.host}
     elif args.command=="status": name,inputs="host.status",{"host":args.host}
     elif args.command=="services": name,inputs="service.list",{"host":args.host}
     elif args.command=="logs": name,inputs="logs.read",{"host":args.host,"service":args.service,"lines":args.lines}

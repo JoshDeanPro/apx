@@ -11,7 +11,8 @@ from .cloud import LocalCloud
 FALLBACK_VERSION = "2025-06-18"
 
 
-def tool_name(action: str) -> str: return action.replace(".", "_")
+def tool_name(action: str) -> str:
+    return "host_info" if action=="host.inspect" else action.replace(".", "_")
 
 
 class MCPServer:
@@ -37,7 +38,7 @@ class MCPServer:
             if method=="initialize":
                 requested=params.get("protocolVersion")
                 version=requested if isinstance(requested,str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}",requested) else FALLBACK_VERSION
-                result={"protocolVersion":version,"capabilities":{"tools":{"listChanged":False}},"serverInfo":{"name":"localcloud","version":"0.1.0"},"instructions":"Use the same discovered LOCALCLOUD actions available to human CLI and Python callers. Prefer read-only inspection before mutations."}
+                result={"protocolVersion":version,"capabilities":{"tools":{"listChanged":False}},"serverInfo":{"name":"localcloud","version":"0.2.0"},"instructions":"Use the same discovered LOCALCLOUD actions available to human CLI and Python callers. Prefer read-only inspection before mutations."}
             elif method=="ping": result={}
             elif method=="tools/list": result={"tools":self.tools()}
             elif method=="tools/call":

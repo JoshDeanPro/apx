@@ -19,7 +19,17 @@ path = "/path/to/source"
 role = "development"
 
 [projects.context]
+preferred_technologies = ["Use what the project already uses."]
+avoid_technologies = ["Do not add infrastructure without a demonstrated need."]
+conventions = ["Keep operational actions explicit and inspectable."]
 architecture = ["Describe stable architectural facts here."]
 commands = {test = "python -m pytest"}
-avoid = ["Do not put credentials in source control."]
+relationships = [{host = "workstation", role = "development"}]
+deployment = {method = "existing project scripts", preference = "verify after deployment"}
 
+# Optional event-to-provider integration. The secret stays in the named
+# environment variable and never appears in this file.
+[plugins.discord_webhook]
+enabled = false
+url_env = "LOCALCLOUD_DISCORD_WEBHOOK_URL"
+events = ["project.deployed", "backup.completed", "service.failed"]
