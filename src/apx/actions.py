@@ -25,9 +25,55 @@ class RegisteredAction:
     schema: dict[str, Any]
     read_only: bool = True
     destructive: bool = False
+    # --- Action Providers metadata -- all optional, all backward compatible ---------
+    # `confirmation` defaults to "none" (not inferred from `destructive`) deliberately:
+    # existing destructive actions are already gated by the CLI's --yes / MCP's
+    # confirm=true, a mechanism that predates and is unrelated to this one. Making
+    # `confirmation` default to anything but "none" here would retroactively require
+    # every existing destructive action to start carrying a request.confirmation
+    # payload nothing currently sends, breaking them. New provider actions that want
+    # the new gate (see cloud.execute) opt in by setting `confirmation` explicitly.
+    output_schema: dict[str, Any] | None = None
+    risk: str | None = None  # None = infer from read_only/destructive, see _risk()
+    confirmation: str = "none"
+    reversible: bool = False
+    reverse_action: str | None = None
+    idempotent: bool | None = None  # None = infer from read_only, see _idempotent()
+    required_permissions: tuple[str, ...] = ()
+    provider: str | None = None
+    provenance: str = "native_provider"
+    tags: tuple[str, ...] = ()
+    version: str = "1.0"
+    deprecated: bool = False
+    resource_type: str | None = None
+    side_effects: tuple[str, ...] = ()
+    credential_requirements: tuple[str, ...] = ()
+    actor_requirements: tuple[str, ...] = ()
+    expected_verification: str | None = None
+    remediation_action: str | None = None
+    prepare_handler: Callable[..., Any] | None = None
+    verify_handler: Callable[..., Any] | None = None
+
+    def _risk(self) -> str:
+        if self.risk is not None: return self.risk
+        if self.destructive: return "destructive"
+        if not self.read_only: return "account_change"
+        return "read"
+
+    def _idempotent(self) -> bool:
+        return self.read_only if self.idempotent is None else self.idempotent
 
     def definition(self) -> ActionDefinition:
-        return ActionDefinition(self.name,self.description,self.schema,self.read_only,self.destructive)
+        return ActionDefinition(
+            self.name,self.description,self.schema,self.read_only,self.destructive,
+            output_schema=self.output_schema,risk=self._risk(),confirmation=self.confirmation,
+            reversible=self.reversible,reverse_action=self.reverse_action,idempotent=self._idempotent(),
+            required_permissions=self.required_permissions,provider=self.provider,provenance=self.provenance,
+            tags=self.tags,version=self.version,deprecated=self.deprecated,
+            resource_type=self.resource_type,side_effects=self.side_effects,
+            credential_requirements=self.credential_requirements,actor_requirements=self.actor_requirements,
+            expected_verification=self.expected_verification,remediation_action=self.remediation_action,
+        )
 
 
 class ActionRegistry:

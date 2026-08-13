@@ -195,14 +195,16 @@ local CLI; APX never changes tailnet policy or reads auth keys.
 ```text
 Python / CLI / MCP
         |
- shared ActionRegistry
+shared ActionRegistry
         |
  Hosts -- Projects -- portable TOML context
         |
  local or SSH Transport
         |
- discovered host software
+discovered host software
 ```
+
+APX also includes transport-neutral Action Providers: typed manifests at the conventional HTTP discovery path `/.well-known/apx`, secure prepare/authorize/execute/verify/receipt lifecycles, a decorator-based Python provider SDK, an optional framework-neutral HTTP adapter, explicit remote discovery, Commerce reciprocity conformance, and a runnable local subscription provider. See [Action Providers](docs/action-providers.md).
 
 - `models.py`: configured Hosts, Projects, and project locations.
 - `axp.py`: typed AXP 0.1 exchange structures.
