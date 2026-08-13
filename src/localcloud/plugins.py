@@ -38,7 +38,10 @@ class PluginAPI:
     def discover_resources(self, discoverer: Callable[[],Iterable[Resource]]) -> None: self.resource_discoverers.append(discoverer)
     def discover_capabilities(self, discoverer: Callable[[str],Iterable[Capability]]) -> None: self.capability_discoverers.append(discoverer)
     def provide_context(self, provider: Callable[[],Iterable[Context]]) -> None: self.context_providers.append(provider)
-    def credential(self, credential_id: str) -> str: return self.cloud.credentials.resolve(credential_id)
+    def credential(self, credential_id: str) -> str:
+        # Provider actions resolve through the configured secret backend (environment,
+        # Keychain, OpenBao), never directly through environment-only legacy lookup.
+        return self.cloud.secrets.reveal(credential_id)["value"]
 
 
 class Plugin(Protocol):
