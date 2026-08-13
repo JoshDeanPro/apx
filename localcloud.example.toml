@@ -85,3 +85,107 @@ events = ["project.deployed", "backup.completed", "service.failed"]
 source = "project:example"
 relation = "developed_on"
 target = "host:workstation"
+
+# ---------------------------------------------------------------------------
+# AXP identity, permissions, and state are entirely optional. Until you add
+# any [[roles]], every action is allowed for every actor -- identical to
+# today's behavior. Add [[actors]]/[[roles]] once you want real enforcement.
+# ---------------------------------------------------------------------------
+
+# The identity used when no --actor is given (CLI/Python/MCP).
+# default_actor = "human:ethan"
+
+# [[actors]]
+# id = "human:ethan"
+# kind = "human"
+# roles = ["admin"]
+
+# Two agents of the same runtime on different hosts are different identities
+# and can be granted different capabilities.
+# [[actors]]
+# id = "agent:claude:workstation"
+# kind = "agent"
+# runtime = "claude"
+# host = "workstation"
+# projects = ["example"]
+# roles = ["developer"]
+
+# [[actors]]
+# id = "agent:claude:server"
+# kind = "agent"
+# runtime = "claude"
+# host = "server"
+# projects = ["example"]
+# roles = ["developer", "deployer"]
+
+# Roles are capability/RBAC-style: scoped allow rules, with explicit deny
+# always taking precedence. Scope dimensions: project, host, group, tag,
+# state. A rule with no scope matches any target for that action.
+# [[roles]]
+# name = "admin"
+# [[roles.allow]]
+# action = "*"
+
+# [[roles]]
+# name = "developer"
+# [[roles.allow]]
+# action = "project.inspect"
+# [[roles.allow]]
+# action = "service.status"
+# [[roles.allow]]
+# action = "logs.read"
+
+# [[roles]]
+# name = "deployer"
+# [[roles.allow]]
+# action = "service.restart"
+# scope = { project = ["example"] }
+# [[roles.deny]]
+# action = "host.shutdown"
+
+# Policy can flex with a system/security state. State names are free-form;
+# "incident" and "lockdown" get dedicated security.* lifecycle events.
+# [state]
+# default = "normal"
+# [[roles.allow]]
+# action = "logs.read"
+# scope = { state = ["incident", "lockdown"] }
+
+# Secrets: the environment backend (above, via [credentials.*]) always works.
+# macOS Keychain and OpenBao are optional, off unless configured here.
+# [secrets.keychain]
+# [secrets.openbao]
+# base_url = "https://openbao.internal:8200"
+# token_env = "OPENBAO_TOKEN"
+# mount = "secret"
+
+# ---------------------------------------------------------------------------
+# Authentication is layered on top of, and separate from, the identity/policy
+# section above: authentication answers "who is this, really" (an AuthContext
+# describing HOW that was established); PolicyEngine above still alone decides
+# "what may they do." AXP works fully offline with zero [auth] configuration --
+# every existing bare `actor="..."` call is already authenticated as
+# authentication_method="local_os" via the always-available local provider.
+# OpenPower (github.com/openpower... a separate, optional project) is one more
+# identity source, never a requirement: it can tell AXP who a principal is;
+# this machine's local policy still alone decides what they may do here.
+# ---------------------------------------------------------------------------
+
+# [auth]
+# allow_local_fallback = true    # keep working if OpenPower is unreachable (default: true)
+# enrollment_mode = "manual"     # disabled | manual | trusted_device | automatic (default: manual)
+
+# [auth.openpower]
+# enabled = true
+# endpoint = "https://openpower.one/api"   # NOT .../api/v1 -- auth_openpower.py's
+#                                            # status check appends "/v1/agents/{id}/status"
+#                                            # itself; point at a self-hosted/test instance if you prefer
+# shared_secret_env = "OPENPOWER_SHARED_SECRET"   # HS256 JWT verification; never the secret itself in this file
+# issuer = "openpower.one"
+# audience = "axp"
+
+# Link a declared actor to an OpenPower-side identity (metadata only -- never
+# a password or browser refresh token). Equivalent to `localcloud identity link`.
+# [[actors]]
+# id = "agent:claude:workstation"
+# openpower_identity = "agent:5b6f2c10-...-uuid"

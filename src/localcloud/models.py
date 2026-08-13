@@ -12,6 +12,11 @@ class Host:
     connections: tuple[dict[str, Any], ...] = ()
     groups: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
+    # Descriptive only (e.g. "development", "production", "agent-runtime") -- surfaced via
+    # to_dict()/resource.list for humans and docs. NOT yet consulted by PolicyEngine; only
+    # actor-level roles (identity.ActorRegistry/[[actors]]) are enforced today. A host-scoped
+    # policy dimension keyed on these is plausible future work, not implemented.
+    roles: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]: return asdict(self)
 
