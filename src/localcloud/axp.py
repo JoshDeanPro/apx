@@ -10,6 +10,12 @@ AXP_VERSION = "0.1"
 
 VERSION_STATES = ("current","supported","deprecated","unsupported","unknown","update_available")
 
+ACTOR_KINDS = ("human","host","machine","agent","service","automation","api","mcp","plugin")
+
+EVENT_NAMES = ("policy.allowed","policy.denied","system.state_changed","security.incident_started","security.lockdown_started","security.lockdown_ended","security.break_glass_started","secret.updated","secret.rotated","secret.revoked","credential.rotation_started","credential.rotation_completed","credential.rotation_failed","actor.connected",
+    "identity.authenticated","identity.authentication_failed","identity.enrollment_requested","identity.enrollment_approved","identity.enrollment_denied","identity.linked","identity.unlinked",
+    "credential.created","credential.rotated","credential.revoked","agent.connected","agent.disconnected")
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -102,6 +108,67 @@ class Capability:
 
 
 @dataclass(frozen=True)
+class Actor:
+    id: str
+    kind: str
+    display_name: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in ACTOR_KINDS:
+            raise ValueError(f"invalid actor kind {self.kind!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"actor",**asdict(self)}
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "Actor":
+        if value.get("axp") != AXP_VERSION or value.get("type") != "actor":
+            raise ValueError("not an AXP 0.1 actor")
+        return cls(id=value["id"],kind=value["kind"],display_name=value.get("display_name"))
+
+
+@dataclass(frozen=True)
+class AuthContext:
+    """Identity evidence for a request -- who the caller was proven to be, and how.
+
+    Never carries a raw secret/token/password; only metadata about the authentication
+    event itself. See auth.py for how this gets produced (LocalAuthProvider/AuthManager)
+    and consumed (cloud.execute()). Authentication informs policy of *who* is asking;
+    it never grants authority -- that stays entirely in PolicyEngine (policy.py).
+    """
+    principal_id: str
+    principal_type: str
+    authentication_method: str
+    issuer: str = "local"
+    credential_id: str | None = None
+    device_id: str | None = None
+    delegated_by: str | None = None
+    authenticated_at: str = field(default_factory=_now)
+    expires_at: str | None = None
+    session_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"auth.context",**asdict(self)}
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "AuthContext":
+        known={"principal_id","principal_type","authentication_method","issuer","credential_id","device_id","delegated_by","authenticated_at","expires_at","session_id"}
+        return cls(**{key:value[key] for key in known if key in value})
+
+
+@dataclass(frozen=True)
+class PolicyDecision:
+    allowed: bool
+    actor: str
+    action: str
+    reason: str
+    scope: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"policy.decision",**asdict(self)}
+
+
+@dataclass(frozen=True)
 class ActionDefinition:
     id: str
     description: str
@@ -120,6 +187,10 @@ class ActionRequest:
     input: dict[str, Any] = field(default_factory=dict)
     request_id: str = field(default_factory=lambda: str(uuid4()))
     created_at: str = field(default_factory=_now)
+    actor: str | None = None
+    source: str | None = None
+    correlation_id: str | None = None
+    auth_context: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {"axp":AXP_VERSION,"type":"action.request",**asdict(self)}
@@ -128,7 +199,7 @@ class ActionRequest:
     def from_dict(cls, value: dict[str, Any]) -> "ActionRequest":
         if value.get("axp") != AXP_VERSION or value.get("type") != "action.request":
             raise ValueError("not an AXP 0.1 action.request")
-        return cls(**{key:value[key] for key in ("action","target","input","request_id","created_at") if key in value})
+        return cls(**{key:value[key] for key in ("action","target","input","request_id","created_at","actor","source","correlation_id","auth_context") if key in value})
 
 
 @dataclass(frozen=True)

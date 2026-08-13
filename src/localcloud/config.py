@@ -30,7 +30,7 @@ def load(path: str | Path | None = None) -> tuple[dict[str, Host], dict[str, Pro
         primary=connections[0] if connections else {}
         transport=item.get("transport",primary.get("adapter",primary.get("transport","local")))
         target=item.get("target",primary.get("target"))
-        host = Host(item["name"],transport,target,connections,tuple(item.get("groups",())),tuple(item.get("tags",())))
+        host = Host(item["name"],transport,target,connections,tuple(item.get("groups",())),tuple(item.get("tags",())),tuple(item.get("roles",())))
         if host.transport not in {"local", "ssh", "tailscale_ssh"}:
             raise ValueError(f"unsupported transport {host.transport!r} for {host.name}")
         if host.transport in {"ssh","tailscale_ssh"} and not host.target:
