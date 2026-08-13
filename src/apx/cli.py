@@ -43,7 +43,10 @@ def main(argv: list[str] | None = None) -> int:
     project=sub.add_parser("project",help="inspect a configured project"); project.add_argument("name")
     discover=sub.add_parser("discover-projects",help="discover repository/project directories"); discover.add_argument("host"); discover.add_argument("roots",nargs="*")
     shutdown=sub.add_parser("shutdown",help="shut down a host (requires --yes)"); shutdown.add_argument("host")
-    sub.add_parser("actions",help="list the shared action catalog")
+    actions_parser=sub.add_parser("actions",help="list the shared action catalog"); actions_parser.add_argument("--provider")
+    sub.add_parser("providers",help="list connected APX Action Providers")
+    provider_parser=sub.add_parser("provider",help="inspect a connected APX Action Provider"); provider_parser.add_argument("verb",choices=["inspect"]); provider_parser.add_argument("name")
+    action_parser=sub.add_parser("action",help="inspect an APX Action"); action_parser.add_argument("verb",choices=["inspect"]); action_parser.add_argument("name"); action_parser.add_argument("--provider")
     mcp=sub.add_parser("mcp",help="serve MCP over stdio"); mcp.add_argument("--actor",help="overrides the global --actor for this MCP session")
     whoami=sub.add_parser("whoami",help="describe an actor and its assigned roles"); whoami.add_argument("target_actor",nargs="?")
     policy=sub.add_parser("policy",help="explain a policy decision"); policy.add_argument("verb",choices=["explain"]); policy.add_argument("target_actor"); policy.add_argument("action"); policy.add_argument("--target",action="append",default=[],metavar="KEY=VALUE")
@@ -121,7 +124,19 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as error: output({"action":args.action,"ok":False,"error":str(error)}); return 1
     if args.command=="mcp": return MCPServer(cloud,actor=args.actor).serve()
     if args.command=="actions":
-        output({"actions":[{"name":a.name,"description":a.description,"read_only":a.read_only,"destructive":a.destructive} for a in cloud.actions.list()]}); return 0
+        values=[a.definition().to_dict() for a in cloud.actions.list() if not args.provider or a.provider==args.provider]
+        output({"actions":values}); return 0
+    if args.command=="providers":
+        output({"providers":[{"id":m.provider.id,"name":m.provider.name,"url":m.provider.url,"actions":len(m.actions),"profiles":list(m.profiles)} for m in cloud.provider_manifests()]}); return 0
+    if args.command=="provider":
+        manifest=next((m for m in cloud.provider_manifests() if m.provider.id==args.name),None)
+        if not manifest: output({"ok":False,"error":f"unknown provider {args.name!r}"}); return 1
+        output(manifest.to_dict()); return 0
+    if args.command=="action":
+        try: definition=cloud.actions.get(args.name).definition()
+        except Exception as error: output({"ok":False,"error":str(error)}); return 1
+        if args.provider and definition.provider!=args.provider: output({"ok":False,"error":"action is not supplied by requested provider"}); return 1
+        output(definition.to_dict()); return 0
     if args.command=="whoami":
         result=cloud.run("actor.whoami",actor=args.actor,subject=args.target_actor or args.actor); output(result.to_dict()); return 0 if result.ok else 1
     if args.command=="policy":

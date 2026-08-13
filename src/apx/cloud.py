@@ -4,12 +4,13 @@ import secrets
 import sys
 import time
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .actions import ActionError, CoreActions, RegisteredAction, build_registry
 from .auth import AuthenticationError, AuthManager
-from .axp import ActionRequest, ActionResult, Connection, Event, PolicyDecision, Resource, ResourceRelationship, Capability, Context, StructuredError
+from .axp import ActionReceipt, ActionRequest, ActionResult, ActorDescriptor, Connection, Event, PolicyDecision, PreparedAction, Resource, ResourceRelationship, Capability, Context, StructuredError
 from .config import load, load_document
 from .credentials import ActorCredentialError, ActorCredentialStore, CredentialRegistry, KeychainBackend, OpenBaoBackend, SecretBackendError, SecretsManager
 from .enrollment import EnrollmentError, EnrollmentStore
@@ -18,6 +19,7 @@ from .groups import GroupStore
 from .identity import ActorRegistry, DEFAULT_ACTOR, IdentityLinkStore
 from .missions import MissionError, MissionStore
 from .plugins import PluginManager
+from .providers import ActionProvider, ProviderManifest, RemoteProvider, validate_provider
 from .policy import PolicyEngine, ScopedRule, scope_values
 from .state import SECURITY_STATES, StateStore
 from .system import connection_list, connection_status, scheduler_inspect, scheduler_list, tailscale_status
@@ -49,8 +51,20 @@ class APX:
         self.connections=[]; self.adapters={}; self.connection_health=[]
         self._load_connections()
         self.events = EventRouter()
+        self.providers: dict[str, ActionProvider | RemoteProvider] = {}
+        self._used_authorizations: set[str] = set()
+        self._load_providers()
         self.plugin_manager = PluginManager(self.actions,self.events,self)
         self.plugins = self.plugin_manager.load(config) if plugins else []
+
+    def _load_providers(self) -> None:
+        for value in self.config.get("providers",[]):
+            if not value.get("enabled",True): continue
+            if value.get("type")=="reference":
+                from .examples.subscriptions import build_reference_provider
+                self.register_provider(build_reference_provider())
+            elif value.get("origin"):
+                self.connect_provider(value["origin"])
 
     def _secret_backends(self) -> dict[str, Any]:
         backends={}
@@ -181,9 +195,64 @@ class APX:
                 except Exception as error: self.connection_health.append({"id":connection.id,"adapter":connection.adapter,"ok":False,"error":str(error)})
             else: self.connection_health.append({"id":connection.id,"adapter":connection.adapter,"ok":False,"error":"adapter is not configured by the core"})
 
-    def run(self, action: str, /, *, actor: str | None = None, target: dict[str, Any] | None = None, auth_context: dict[str, Any] | None = None, **inputs: Any) -> ActionResult:
+    def run(self, action: str, /, *, actor: str | None = None, target: dict[str, Any] | None = None, auth_context: dict[str, Any] | None = None, confirmation: dict[str, Any] | None = None, **inputs: Any) -> ActionResult:
         derived={key:inputs[key] for key in ("host","service","project","source_host","destination_host") if key in inputs and inputs[key] is not None}
-        return self.execute(ActionRequest(action=action,target={**derived,**(target or {})},input=inputs,actor=actor,auth_context=auth_context))
+        return self.execute(ActionRequest(action=action,target={**derived,**(target or {})},input=inputs,actor=actor,auth_context=auth_context,confirmation=confirmation))
+
+    def prepare(self, action: str, /, *, actor: str | None = None, target: dict[str, Any] | None = None, **inputs: Any) -> PreparedAction:
+        """Resolves what EXECUTE would do -- exact target, confirmation requirement,
+        reversibility -- without doing it. Does not check policy: PREPARE answers
+        "what would happen", not "am I allowed" (that's still decided at execute()
+        time, same as every other action, so prepare can never be used to probe
+        permissions without a real attempt)."""
+        derived={key:inputs[key] for key in ("host","service","project","source_host","destination_host") if key in inputs and inputs[key] is not None}
+        resolved_target={**derived,**(target or {})}
+        registered=self.actions.get(action); definition=registered.definition(); values={}
+        if registered.prepare_handler:
+            raw=registered.prepare_handler(**inputs)
+            values=dict(raw) if isinstance(raw,dict) else {}
+        prepared=PreparedAction(
+            action=definition.id,target=resolved_target,input=inputs,
+            effect=values.pop("effect",definition.description),confirmation_required=definition.confirmation,
+            reversible=definition.reversible,reverse_action=definition.reverse_action,
+            provider=definition.provider,side_effects=definition.side_effects,**values,
+        )
+        self.emit(Event("action.prepared",definition.provider or "apx",{"action":action,"request":prepared.request_id},{"confirmation":definition.confirmation,"reversible":definition.reversible}))
+        return prepared
+
+    def register_provider(self, provider: ActionProvider) -> ProviderManifest:
+        if provider.identity.id in self.providers: raise ValueError(f"provider {provider.identity.id!r} is already connected")
+        errors=validate_provider(provider)
+        if errors: raise ValueError("provider conformance failed: "+"; ".join(errors))
+        provider.register(self.actions); self.providers[provider.identity.id]=provider
+        self.emit(Event("provider.connected","apx",{"provider":provider.identity.id},{"actions":len(provider.actions)}))
+        for action in provider.actions: self.emit(Event("provider.action_added","apx",{"provider":provider.identity.id,"action":action.name},{}))
+        return provider.manifest()
+
+    def connect_provider(self, origin: str, *, opener=None) -> ProviderManifest:
+        remote=RemoteProvider.discover(origin,opener=opener); manifest=remote.manifest()
+        if manifest.provider.id in self.providers: raise ValueError(f"provider {manifest.provider.id!r} is already connected")
+        for item in manifest.actions:
+            def invoke(_action=item.id,**inputs):
+                response=remote.execute_action(ActionRequest(_action,input=inputs,actor=self.actors.resolve_default()))
+                if not response.get("ok"): raise ActionError(response.get("error",{}).get("message","remote action failed"))
+                return response.get("result")
+            self.actions.register(RegisteredAction(item.id,item.description,invoke,item.input_schema,item.read_only,item.destructive,
+                output_schema=item.output_schema,risk=item.risk,confirmation=item.confirmation,reversible=item.reversible,
+                reverse_action=item.reverse_action,idempotent=item.idempotent,required_permissions=item.required_permissions,
+                provider=manifest.provider.id,provenance=item.provenance,tags=item.tags,version=item.version,deprecated=item.deprecated,
+                resource_type=item.resource_type,side_effects=item.side_effects,credential_requirements=item.credential_requirements,
+                actor_requirements=item.actor_requirements,expected_verification=item.expected_verification,remediation_action=item.remediation_action))
+        self.providers[manifest.provider.id]=remote
+        self.emit(Event("provider.connected","apx",{"provider":manifest.provider.id},{"origin":origin,"actions":len(manifest.actions)}))
+        return manifest
+
+    def provider_manifests(self) -> list[ProviderManifest]: return [provider.manifest() for provider in self.providers.values()]
+
+    def provider_actor(self, request: ActionRequest) -> ActorDescriptor:
+        actor=request.actor or self.actors.resolve_default(); profile=self.actors.get(actor)
+        return ActorDescriptor(actor.split(":",1)[0],actor,owner=request.delegated_by,client=request.client,device=request.device,
+            roles=tuple(profile.roles if profile else ()),delegated_by=request.delegated_by,permissions=(request.action,))
 
     # Always answerable regardless of the caller's own permissions -- "why was this denied?"
     # must never itself be deniable, or permission failures become mysterious. auth.authenticate
@@ -220,10 +289,59 @@ class APX:
                 return result
         try:
             definition = self.actions.get(request.action)
+        except ActionError as error:
+            result=ActionResult(action=request.action,ok=False,error=StructuredError("action.not_found",str(error)),request_id=request.request_id,target=request.target,status="failed")
+            self._emit_for_result(request,result)
+            return result
+        if request.expires_at:
+            try: expired=datetime.fromisoformat(request.expires_at.replace("Z","+00:00"))<=datetime.now(timezone.utc)
+            except ValueError: expired=True
+            if expired: return ActionResult(request.action,False,error=StructuredError("request_expired","action request has expired"),request_id=request.request_id,target=request.target,status="failed")
+        if request.credential and request.credential.revoked:
+            return ActionResult(request.action,False,error=StructuredError("credential_revoked","actor credential is revoked"),request_id=request.request_id,target=request.target,status="failed")
+        if definition.provider and definition._risk()!="read" and request.auth_context is None:
+            return ActionResult(request.action,False,error=StructuredError("authentication_required","consequential provider action requires authenticated actor context"),request_id=request.request_id,target=request.target,status="authorization_required")
+        # Confirmation gate: opt-in per action (definition.confirmation defaults to "none",
+        # see RegisteredAction) so this can never retroactively block an existing action
+        # nothing has started sending confirmation for. A supplied confirmation must name
+        # the exact level the action requires -- "confirm" doesn't satisfy "transaction".
+        required=definition.confirmation
+        supplied=(request.confirmation or {}) if required!="none" else {}
+        authorization_id=supplied.get("authorization_id") or supplied.get("nonce")
+        valid=required=="none" or (required=="delegated" and bool(request.delegated_by)) or (supplied.get("level")==required and supplied.get("confirmed") is True)
+        if supplied.get("expires_at"):
+            try: valid=valid and datetime.fromisoformat(supplied["expires_at"].replace("Z","+00:00"))>datetime.now(timezone.utc)
+            except ValueError: valid=False
+        if authorization_id and authorization_id in self._used_authorizations: valid=False
+        if required=="transaction":
+            prepared=self.prepare(request.action,actor=actor,target=request.target,**request.input)
+            valid=valid and supplied.get("terms")==prepared.confirmation_terms
+        if not valid:
+            result=ActionResult(
+                action=request.action,ok=False,request_id=request.request_id,target=request.target,
+                status="authorization_required",
+                result={"authorization":{"method":"provider","requested_confirmation":required,"action_request_id":request.request_id,
+                    "authorization_url":supplied.get("authorization_url"),"expires_at":supplied.get("expires_at")}},
+                error=StructuredError("authorization_required",f"{required} confirmation is required"),
+            )
+            self.emit(Event(name="action.authorization_required",source="apx",subject={"actor":actor,"action":request.action},data={"required_confirmation":required},correlation_id=request.request_id))
+            return result
+        if authorization_id: self._used_authorizations.add(authorization_id)
+        if required!="none": self.emit(Event("action.authorized",definition.provider or "apx",{"actor":actor,"action":request.action},{"confirmation":required},correlation_id=request.request_id))
+        try:
+            self.emit(Event("action.started",definition.provider or "apx",{"actor":actor,"action":request.action},{},correlation_id=request.request_id))
             raw = definition.handler(**request.input)
             # secret.reveal is the one sanctioned path for a raw value; policy already gated it above.
             data = raw if request.action=="secret.reveal" else self.credentials.redact(raw)
-            result=ActionResult(action=definition.name,ok=True,result=data,request_id=request.request_id,target=request.target)
+            verification="unverified"
+            if definition.verify_handler: verification="verified" if definition.verify_handler(data,**request.input) else "failed"
+            elif definition.read_only: verification="not_applicable"
+            receipt=None
+            if definition.provider or required!="none" or definition.destructive:
+                receipt=ActionReceipt(action=definition.name,provider=definition.provider,target=request.target,actor=actor,status="completed",result=data,request_id=request.request_id,verification_status=verification,reversible=definition.reversible,reverse_action=definition.reverse_action,side_effects=definition.side_effects,reversal={"available":definition.reversible,"action":definition.reverse_action} if definition.reversible else {"available":False,"remediation_action":definition.remediation_action})
+                provider=self.providers.get(definition.provider or "")
+                if isinstance(provider,ActionProvider): provider.receipts[receipt.receipt_id]=receipt
+            result=ActionResult(action=definition.name,ok=True,result=data,request_id=request.request_id,target=request.target,status="completed",receipt=receipt)
             self._emit_for_result(request,result)
             return result
         except (ActionError, RuntimeError, OSError, ValueError, TypeError) as error:
@@ -231,7 +349,7 @@ class APX:
             # mistake (CLI/MCP/Python/agent), not a crash -- every actor gets a structured
             # action.failed instead of an uncaught traceback, at this one execution point.
             code="action.not_found" if "unknown action" in str(error) else "action.failed"
-            result=ActionResult(action=request.action,ok=False,error=StructuredError(code,self.credentials.redact_text(str(error))),request_id=request.request_id,target=request.target)
+            result=ActionResult(action=request.action,ok=False,error=StructuredError(code,self.credentials.redact_text(str(error))),request_id=request.request_id,target=request.target,status="failed")
             self._emit_for_result(request,result)
             return result
 
@@ -467,6 +585,7 @@ class APX:
         values.extend(Resource(id=f"project:{project.name}",kind="project",name=project.name,attributes={"description":project.description,"services":project.services,"domains":project.domains},groups=project.groups,tags=project.tags) for project in self.projects.values())
         values.extend(Resource(id=f"mission:{m['id']}",kind="mission",name=m["title"],attributes={"project":m["project"],"status":m["status"],"objective":m["objective"]}) for m in self.missions.list_missions())
         values.extend(Resource(id=f"task:{t['id']}",kind="task",name=t["title"],attributes={"mission":t["mission"],"status":t["status"],"reason":t["reason"]}) for t in self.missions.list_tasks())
+        for provider in self.providers.values(): values.extend(provider.manifest().resources)
         return [self.group_store.apply(value) for value in values+self.plugin_manager.resources+self.plugin_manager.discover_resources()]
 
     def group_list(self):

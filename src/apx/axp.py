@@ -12,9 +12,30 @@ VERSION_STATES = ("current","supported","deprecated","unsupported","unknown","up
 
 ACTOR_KINDS = ("human","host","machine","agent","service","automation","api","mcp","plugin")
 
+# Action Providers: what a Resource/Provider can do (read a value) up to (move money or
+# change security posture). Deliberately small -- risk metadata exists so a client can
+# decide how much confirmation to demand, not to enumerate every possible operation.
+ACTION_RISKS = ("read","low_change","account_change","destructive","financial","security_critical")
+
+# How much fresh human presence/confirmation an Action's risk level demands before
+# execution. "none" and "delegated" require no fresh confirmation (the actor already has
+# standing/delegated permission); everything past "confirm" requires the caller to supply
+# matching confirmation in the ActionRequest or APX returns action.authorization_required.
+CONFIRMATION_LEVELS = ("none","delegated","confirm","step_up","transaction","security_critical")
+
+# Action lifecycle states -- an ActionResult.status, not a second boolean bolted onto `ok`.
+ACTION_STATUSES = ("prepared","authorization_required","pending","running","completed","failed","cancelled","reversed")
+
+# Where an Action's implementation actually comes from -- lets a client tell "Discord's own
+# native APX action" apart from "an AI clicking through a webpage" without APX Core knowing
+# anything about either. Descriptive only; not a trust ranking APX itself enforces.
+PROVENANCE_KINDS = ("native_provider","official_plugin","community_plugin","local_component","generated_component","browser_fallback")
+
 EVENT_NAMES = ("policy.allowed","policy.denied","system.state_changed","security.incident_started","security.lockdown_started","security.lockdown_ended","security.break_glass_started","secret.updated","secret.rotated","secret.revoked","credential.rotation_started","credential.rotation_completed","credential.rotation_failed","actor.connected",
     "identity.authenticated","identity.authentication_failed","identity.enrollment_requested","identity.enrollment_approved","identity.enrollment_denied","identity.linked","identity.unlinked",
-    "credential.created","credential.rotated","credential.revoked","agent.connected","agent.disconnected")
+    "credential.created","credential.rotated","credential.revoked","agent.connected","agent.disconnected",
+    "action.prepared","action.authorization_required","action.authorized","action.started","action.completed","action.failed","action.reversed",
+    "provider.connected","provider.disconnected","provider.action_added","provider.action_removed")
 
 
 def _now() -> str:
@@ -175,6 +196,32 @@ class ActionDefinition:
     input_schema: dict[str, Any]
     read_only: bool = True
     destructive: bool = False
+    # --- Action Providers: what it MEANS, not just how to call it -----------------
+    output_schema: dict[str, Any] | None = None
+    risk: str = "read"
+    confirmation: str = "none"
+    reversible: bool = False
+    reverse_action: str | None = None
+    idempotent: bool = True
+    side_effects: tuple[str, ...] = ()
+    required_permissions: tuple[str, ...] = ()
+    provider: str | None = None
+    provenance: str = "native_provider"
+    tags: tuple[str, ...] = ()
+    version: str = "1.0"
+    deprecated: bool = False
+    resource_type: str | None = None
+    credential_requirements: tuple[str, ...] = ()
+    actor_requirements: tuple[str, ...] = ()
+    expected_verification: str | None = None
+    remediation_action: str | None = None
+    deprecation_message: str | None = None
+    extensions: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.risk not in ACTION_RISKS: raise ValueError(f"invalid risk {self.risk!r}; expected one of {ACTION_RISKS}")
+        if self.confirmation not in CONFIRMATION_LEVELS: raise ValueError(f"invalid confirmation {self.confirmation!r}; expected one of {CONFIRMATION_LEVELS}")
+        if self.provenance not in PROVENANCE_KINDS: raise ValueError(f"invalid provenance {self.provenance!r}; expected one of {PROVENANCE_KINDS}")
 
     def to_dict(self) -> dict[str, Any]:
         return {"axp":AXP_VERSION,"type":"action.definition",**asdict(self)}
@@ -191,6 +238,15 @@ class ActionRequest:
     source: str | None = None
     correlation_id: str | None = None
     auth_context: dict[str, Any] | None = None
+    # --- Action Providers: minimum-necessary delegation/confirmation envelope -----
+    delegated_by: str | None = None
+    client: str | None = None
+    device: str | None = None
+    mission: str | None = None
+    confirmation: dict[str, Any] | None = None  # e.g. {"level": "confirm", "confirmed": true}
+    expires_at: str | None = None
+    nonce: str | None = None
+    credential: "CredentialHandle | None" = None
 
     def to_dict(self) -> dict[str, Any]:
         return {"axp":AXP_VERSION,"type":"action.request",**asdict(self)}
@@ -199,7 +255,38 @@ class ActionRequest:
     def from_dict(cls, value: dict[str, Any]) -> "ActionRequest":
         if value.get("axp") != AXP_VERSION or value.get("type") != "action.request":
             raise ValueError("not an AXP 0.1 action.request")
-        return cls(**{key:value[key] for key in ("action","target","input","request_id","created_at","actor","source","correlation_id","auth_context") if key in value})
+        known=("action","target","input","request_id","created_at","actor","source","correlation_id","auth_context","delegated_by","client","device","mission","confirmation","expires_at","nonce")
+        values={key:value[key] for key in known if key in value}
+        if value.get("credential"): values["credential"]=CredentialHandle.from_dict(value["credential"])
+        return cls(**values)
+
+
+@dataclass(frozen=True)
+class ActionReceipt:
+    """Structured proof a consequential Action actually happened -- so a caller never has
+    to infer success from an HTTP 200 or a UI element disappearing. No secrets ever."""
+    action: str
+    provider: str | None
+    target: dict[str, Any] = field(default_factory=dict)
+    actor: str | None = None
+    status: str = "completed"
+    result: Any = None
+    receipt_id: str = field(default_factory=lambda: str(uuid4()))
+    request_id: str | None = None
+    effective_time: str = field(default_factory=_now)
+    verification_status: str = "unverified"
+    reversible: bool = False
+    reverse_action: str | None = None
+    provider_reference: str | None = None
+    side_effects: tuple[str, ...] = ()
+    reversal: dict[str, Any] | None = None
+    timestamp: str = field(default_factory=_now)
+
+    def __post_init__(self) -> None:
+        if self.status not in ACTION_STATUSES: raise ValueError(f"invalid receipt status {self.status!r}; expected one of {ACTION_STATUSES}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"action.receipt",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -210,6 +297,11 @@ class ActionResult:
     error: StructuredError | None = None
     request_id: str | None = None
     target: dict[str, Any] = field(default_factory=dict)
+    status: str = "completed"
+    receipt: ActionReceipt | None = None
+
+    def __post_init__(self) -> None:
+        if self.status not in ACTION_STATUSES: raise ValueError(f"invalid status {self.status!r}; expected one of {ACTION_STATUSES}")
 
     @property
     def data(self) -> Any: return self.result
@@ -218,14 +310,110 @@ class ActionResult:
     def host(self) -> str | None: return self.target.get("host")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"action.result","action":self.action,"request_id":self.request_id,"target":self.target,"ok":self.ok,"result":self.result,"error":self.error.to_dict() if self.error else None,"data":self.result,"host":self.host}
+        return {"axp":AXP_VERSION,"type":"action.result","action":self.action,"request_id":self.request_id,"target":self.target,"ok":self.ok,"status":self.status,"result":self.result,"error":self.error.to_dict() if self.error else None,"receipt":self.receipt.to_dict() if self.receipt else None,"data":self.result,"host":self.host}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ActionResult":
         if value.get("axp") != AXP_VERSION or value.get("type") != "action.result":
             raise ValueError("not an AXP 0.1 action.result")
         error=StructuredError.from_dict(value["error"]) if value.get("error") else None
-        return cls(action=value["action"],ok=value["ok"],result=value.get("result"),error=error,request_id=value.get("request_id"),target=value.get("target",{}))
+        receipt=None
+        if value.get("receipt"):
+            raw={k:v for k,v in value["receipt"].items() if k not in {"axp","type"}}
+            if "side_effects" in raw: raw["side_effects"]=tuple(raw["side_effects"])
+            receipt=ActionReceipt(**raw)
+        return cls(action=value["action"],ok=value["ok"],result=value.get("result"),error=error,request_id=value.get("request_id"),target=value.get("target",{}),status=value.get("status","completed"),receipt=receipt)
+
+
+@dataclass(frozen=True)
+class PreparedAction:
+    """What PREPARE answers before EXECUTE commits to anything: the resolved effect,
+    cost/terms if any, and exactly what confirmation executing it will require."""
+    action: str
+    target: dict[str, Any] = field(default_factory=dict)
+    input: dict[str, Any] = field(default_factory=dict)
+    effect: str = ""
+    confirmation_required: str = "none"
+    cost: dict[str, Any] | None = None
+    reversible: bool = False
+    reverse_action: str | None = None
+    expires_at: str | None = None
+    request_id: str = field(default_factory=lambda: str(uuid4()))
+    provider: str | None = None
+    side_effects: tuple[str, ...] = ()
+    provider_conditions: tuple[str, ...] = ()
+    recurring_terms: dict[str, Any] | None = None
+    authorization: dict[str, Any] | None = None
+    confirmation_terms: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        if self.confirmation_required not in CONFIRMATION_LEVELS:
+            raise ValueError(f"invalid confirmation_required {self.confirmation_required!r}; expected one of {CONFIRMATION_LEVELS}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"action.prepared",**asdict(self)}
+
+
+@dataclass(frozen=True)
+class ActorDescriptor:
+    """Minimum-necessary actor identity a provider is told, deliberately excluding
+    everything not relevant to evaluating this one Action -- no conversation, no
+    unrelated profiles, no machine inventory, no memories."""
+    kind: str
+    id: str
+    owner: str | None = None
+    client: str | None = None
+    device: str | None = None
+    roles: tuple[str, ...] = ()
+    delegated_by: str | None = None
+    permissions: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.kind not in ACTOR_KINDS: raise ValueError(f"invalid actor kind {self.kind!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"actor.descriptor",**asdict(self)}
+
+
+@dataclass(frozen=True)
+class CredentialHandle:
+    """Abstraction over how an actor proves itself to a provider -- deliberately never
+    carries a raw secret/key. `mode='bearer'` is what APX implements today (see auth.py/
+    credentials.py); `mode='proof_of_possession'` is the intended long-term shape for
+    long-lived agents (private key stays on the originating device, requests are signed/
+    bound to it) -- APX Core defines this abstraction and does not implement the signing
+    scheme itself; no custom cryptography, no algorithm invented here."""
+    id: str
+    mode: str
+    issuer: str
+    audience: str
+    fingerprint: str | None = None
+    expires_at: str | None = None
+    revoked: bool = False
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("bearer","proof_of_possession"):
+            raise ValueError(f"invalid credential mode {self.mode!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"credential.handle",**asdict(self)}
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "CredentialHandle":
+        if value.get("type") not in (None,"credential.handle"): raise ValueError("not a credential handle")
+        known=("id","mode","issuer","audience","fingerprint","expires_at","revoked")
+        return cls(**{key:value[key] for key in known if key in value})
+
+
+@dataclass(frozen=True)
+class SecretInput:
+    """Opaque reference to secret material delivered through a secure side channel."""
+    reference: str
+    purpose: str
+    delivery: str = "provider_secure_input"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"secret.input","reference":self.reference,"purpose":self.purpose,"delivery":self.delivery}
 
 
 @dataclass(frozen=True)
