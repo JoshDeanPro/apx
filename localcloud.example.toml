@@ -1,0 +1,25 @@
+version = 1
+
+[[hosts]]
+name = "workstation"
+transport = "local"
+
+[[hosts]]
+name = "server"
+transport = "ssh"
+target = "my-server"
+
+[[projects]]
+name = "example"
+description = "An optional relationship map layered on discovered facts."
+
+[[projects.locations]]
+host = "workstation"
+path = "/path/to/source"
+role = "development"
+
+[projects.context]
+architecture = ["Describe stable architectural facts here."]
+commands = {test = "python -m pytest"}
+avoid = ["Do not put credentials in source control."]
+
