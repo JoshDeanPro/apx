@@ -33,7 +33,7 @@ class ProviderSchemaTests(unittest.TestCase):
         decoded=ProviderManifest.from_dict(json.loads(json.dumps(manifest.to_dict())))
         self.assertEqual(decoded.provider.id,"reference.local")
         self.assertEqual(validate_provider(provider),[])
-        self.assertEqual({a.risk for a in decoded.actions},{"read","financial","account_change"})
+        self.assertEqual({a.risk for a in decoded.actions},{"read","financial","account_change","security_critical"})
         self.assertNotIn("secret",json.dumps(manifest.to_dict()).lower())
 
     def test_commerce_reciprocity_and_reversal_conformance(self):

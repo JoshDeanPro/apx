@@ -56,6 +56,11 @@ class RegisteredAction:
     remediation_action: str | None = None
     prepare_handler: Callable[..., Any] | None = None
     verify_handler: Callable[..., Any] | None = None
+    retry: str | None = None
+    preconditions: tuple[dict[str, Any], ...] = ()
+    postconditions: tuple[dict[str, Any], ...] = ()
+    constraints: dict[str, Any] = None  # type: ignore[assignment]
+    reversal_window: int | None = None
 
     def _risk(self) -> str:
         if self.risk is not None: return self.risk
@@ -76,6 +81,8 @@ class RegisteredAction:
             resource_type=self.resource_type,side_effects=self.side_effects,
             credential_requirements=self.credential_requirements,actor_requirements=self.actor_requirements,
             expected_verification=self.expected_verification,remediation_action=self.remediation_action,
+            retry=self.retry,preconditions=self.preconditions,postconditions=self.postconditions,
+            constraints=self.constraints or {},reversal_window=self.reversal_window,
         )
 
 

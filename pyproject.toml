@@ -21,3 +21,13 @@ apx = "apx.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.data-files]
+"share/apx/spec/0.1" = ["spec/protocol.md", "spec/http.md", "spec/conformance.md"]
+"share/apx/spec/0.1/schemas" = [
+    "spec/schemas/action-request.schema.json",
+    "spec/schemas/action-result.schema.json",
+    "spec/schemas/action-receipt.schema.json",
+    "spec/schemas/provider-manifest.schema.json",
+    "spec/schemas/resource.schema.json",
+]

@@ -19,17 +19,19 @@ Discovery validates HTTPS (plain HTTP is limited to loopback), caps manifests at
 
 ## Action definitions
 
-`ActionDefinition` describes meaning and consequences: input/output JSON Schemas, resource type, permissions, risk, confirmation, side effects, idempotency, reversibility/reverse or remediation action, expected verification, credential and actor requirements, provider, provenance, tags, version, and deprecation data. Existing `RegisteredAction` values remain valid; defaults preserve local and SSH behavior.
+`ActionDefinition` describes meaning and consequences: input/output JSON Schemas, resource type, permissions, risk, confirmation, side effects, idempotency and retry policy, pre/postconditions, concurrency/cooldown constraints, reversibility/reverse or remediation action, expected verification, credential and actor requirements, provider, provenance, tags, version, and deprecation data. Existing `RegisteredAction` values remain valid; defaults preserve local and SSH behavior.
 
 Risk is one of `read`, `low_change`, `account_change`, `destructive`, `financial`, or `security_critical`. Confirmation is one of `none`, `delegated`, `confirm`, `step_up`, `transaction`, or `security_critical`. Provenance is descriptive: `native_provider`, `official_plugin`, `community_plugin`, `local_component`, `generated_component`, or `browser_fallback`.
 
 ## Lifecycle and receipts
 
-The lifecycle is DISCOVER → PREPARE → AUTHORIZE → EXECUTE → VERIFY → RECEIPT, with optional reversal. Simple read actions may collapse the stages. `APX.prepare()` invokes an optional provider preparation hook and returns the resolved effect, target, cost, recurring terms, exact confirmation terms, side effects, conditions, reversibility, and expiry.
+The lifecycle is DISCOVER → PREPARE → AUTHORIZE → EXECUTE → VERIFY → RECEIPT, with optional reversal. Simple reads may collapse stages. `ProviderSession.prepare()` returns an expiring `prepared_action_id`, authoritative state/version, resolved terms, exact confirmation, preconditions, and reversibility. Preparation has no side effect. `accepted` is the commit boundary; cancellation before it guarantees `committed: false`.
 
 Consequential provider actions require authenticated actor context. Confirmation must match the declared level. Transaction confirmation must match the exact `confirmation_terms` from preparation. Expired confirmations, reused authorization IDs, expired requests, and revoked credentials are rejected. A provider can return `authorization_required` with its authorization URL and expiry; a client should open that provider-controlled OAuth/WebAuthn/passkey flow and retry with the resulting confirmation. APX does not hold provider passkeys or invent cryptography.
 
-`ActionResult.status` is one of `prepared`, `authorization_required`, `pending`, `running`, `completed`, `failed`, `cancelled`, or `reversed`. Successful provider mutations produce an `ActionReceipt` with request/action/provider/target/actor, result, effective time, verification state, side effects, provider reference, and reversal metadata. Receipts and events are redacted and never carry secret input values.
+Confirmation binds to that exact prepared ID, terms, and expiry. Execution must match prepared input/target/state version. Provider policy is checked again at commit. A denial ends the APX request; conforming clients do not seek a bypass.
+
+Idempotency keys make duplicate logical requests return the same result/receipt. Status and receipt lookup resolve the case where execution happened but the response was lost. Retry policy is `safe`, `idempotency_required`, `manual`, or `never`. Providers can declare cooldown, concurrency, resource-lock, rate, and budget constraints without APX becoming a job queue.
 
 ## Identity, delegation, and credentials
 
@@ -71,7 +73,7 @@ def verify_cancel(result):
 apx.register_provider(provider)
 ```
 
-`HTTPProviderAdapter.handle()` exposes the manifest, `POST /apx/actions/prepare`, `POST /apx/actions/execute`, and `GET /apx/receipts/{id}` without requiring FastAPI. A framework adapter only needs to translate its request/response types to this handler.
+`ProviderSession` supplies the protocol machinery. `APXClient` speaks through `LocalClientTransport` or `HTTPClientTransport`; Provider business code is unchanged. `HTTPProviderAdapter.handle()` exposes the compact `/apx/v0.1` lifecycle without requiring FastAPI. See [the HTTP specification](../spec/http.md).
 
 ## Commerce reciprocity
 
