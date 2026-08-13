@@ -4,6 +4,7 @@ from pathlib import Path
 
 from apx import APX
 from apx.protocol import MCPServer
+from apx.examples.subscriptions import build_reference_provider
 
 
 def config(tmp_path: Path, extra: str = "") -> Path:
@@ -67,6 +68,16 @@ class MCPPermissionTests(unittest.TestCase):
         open_cloud=APX(config(Path(self.temp.name),""),plugins=False)
         tools={t["name"] for t in MCPServer(open_cloud).tools()}
         self.assertIn("service_restart",tools)
+
+    def test_provider_mutation_uses_prepare_and_bound_confirmation(self):
+        cloud=APX(config(Path(self.temp.name),""),plugins=False); cloud.register_provider(build_reference_provider())
+        server=MCPServer(cloud,actor="agent:mcp",auth_context={"principal_id":"agent:mcp"})
+        first=server.dispatch({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"subscription_resume","arguments":{}}})
+        prepared=first["result"]["structuredContent"]; self.assertEqual(prepared["status"],"prepared")
+        arguments={"prepared_action_id":prepared["prepared_action_id"],"idempotency_key":"mcp-resume",
+            "authoritative_state_version":prepared["authoritative_state_version"],"confirmation":{"level":"confirm","confirmed":True,"authorization_id":"mcp-confirm"}}
+        second=server.dispatch({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"subscription_resume","arguments":arguments}})
+        self.assertEqual(second["result"]["structuredContent"]["status"],"completed")
 
 
 if __name__ == "__main__": unittest.main()

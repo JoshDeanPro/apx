@@ -33,6 +33,8 @@ Confirmation binds to that exact prepared ID, terms, and expiry. Execution must 
 
 Idempotency keys make duplicate logical requests return the same result/receipt. Status and receipt lookup resolve the case where execution happened but the response was lost. Retry policy is `safe`, `idempotency_required`, `manual`, or `never`. Providers can declare cooldown, concurrency, resource-lock, rate, and budget constraints without APX becoming a job queue.
 
+`ProviderSession(..., state_path="provider.sqlite3")` durably stores prepared Actions, consumed confirmations, idempotency mappings, results, operations, and receipts using standard-library SQLite. A handler may return `OperationAccepted`; clients reconnect through `operation_status()` and the Provider later calls `complete_operation()` to issue the verified receipt.
+
 ## Identity, delegation, and credentials
 
 Authentication answers who is acting; policy authorization separately answers what that actor may do. Both APX policy and provider account policy can deny an action. Explicit APX denies win over allows and mission delegation cannot grant authority the delegator does not hold.

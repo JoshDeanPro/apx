@@ -163,8 +163,8 @@ The normative [APX Protocol 0.1 specification](spec/protocol.md),
 [JSON Schemas](spec/schemas) are implementation-independent. `apx.axp` defines Resource, Capability, VersionInfo, ActionDefinition,
 ActionRequest, ActionResult, Event, Context, and StructuredError. Resources may
 carry arbitrary groups and tags. These are plain dataclasses;
-The legacy `axp` JSON version key remains temporarily emitted for pre-0.1 Python
-compatibility; new implementations use `apx`.
+APX 0.1 emits only the normative `apx` version key. The deprecated Python
+constant name remains an import alias until APX 1.0, but it does not affect the wire format.
 
 The in-process `EventRouter` supports exact or wildcard subscriptions. Core
 actions emit `action.completed`/`action.failed` plus useful specific events such

@@ -7,8 +7,10 @@ import sys
 import traceback
 from typing import Any
 
-from .axp import Event
+from .axp import ActionRequest, Event
 from .cloud import APX
+from .providers import ActionProvider
+from .runtime import ProviderSession
 
 FALLBACK_VERSION = "2025-06-18"
 
@@ -23,6 +25,7 @@ class MCPServer:
         self.actor = actor or cloud.actors.resolve_default()
         self.auth_context = auth_context
         self.by_tool = {tool_name(action.name): action for action in cloud.actions.list()}
+        self.provider_sessions={provider_id:ProviderSession(provider) for provider_id,provider in cloud.providers.items() if isinstance(provider,ActionProvider)}
         self.cloud.emit(Event("agent.connected","mcp",{"actor":self.actor},{"authenticated":auth_context is not None}))
 
     def tools(self) -> list[dict[str, Any]]:
@@ -33,6 +36,13 @@ class MCPServer:
             if action.destructive:
                 schema["properties"]["confirm"]={"type":"boolean","description":"Must be true for destructive actions."}
                 schema["required"]=[*schema.get("required",[]),"confirm"]
+            if action.provider and (not action.read_only or action.confirmation!="none"):
+                schema["properties"].update({
+                    "prepared_action_id":{"type":"string","description":"ID returned by the first, prepare-only call."},
+                    "idempotency_key":{"type":"string","description":"Stable key for this logical consequential request."},
+                    "authoritative_state_version":{"type":["string","null"]},
+                    "confirmation":{"type":"object","description":"Confirmation bound to prepared_action_id."},
+                })
             tools.append({"name":name,"title":action.name,"description":action.description,"inputSchema":schema,"annotations":{"readOnlyHint":action.read_only,"destructiveHint":action.destructive,"idempotentHint":False,"openWorldHint":True}})
         return tools
 
@@ -54,8 +64,26 @@ class MCPServer:
                 arguments=dict(params.get("arguments") or {})
                 if action.destructive and arguments.pop("confirm",False) is not True:
                     raise ValueError("destructive action requires confirm=true")
-                outcome=self.cloud.run(action.name,actor=self.actor,auth_context=self.auth_context,**arguments).to_dict()
-                result={"content":[{"type":"text","text":json.dumps(outcome,indent=2)}],"structuredContent":outcome,"isError":not outcome["ok"]}
+                session=self.provider_sessions.get(action.provider or "")
+                if session and (not action.read_only or action.confirmation!="none"):
+                    prepared_id=arguments.pop("prepared_action_id",None); idempotency_key=arguments.pop("idempotency_key",None)
+                    state_version=arguments.pop("authoritative_state_version",None); confirmation=arguments.pop("confirmation",None)
+                    if not prepared_id:
+                        prepared=session.prepare(ActionRequest(action.name,input=arguments,actor=self.actor,auth_context=self.auth_context))
+                        outcome=prepared.to_dict()
+                    else:
+                        if confirmation:
+                            authorized=session.authorize(prepared_id,{**confirmation,"prepared_action_id":prepared_id})
+                            if not authorized.ok: outcome=authorized.to_dict()
+                            else:
+                                outcome=session.execute(ActionRequest(action.name,input=arguments,actor=self.actor,auth_context=self.auth_context,
+                                    prepared_action_id=prepared_id,idempotency_key=idempotency_key,authoritative_state_version=state_version)).to_dict()
+                        else:
+                            outcome=session.execute(ActionRequest(action.name,input=arguments,actor=self.actor,auth_context=self.auth_context,
+                                prepared_action_id=prepared_id,idempotency_key=idempotency_key,authoritative_state_version=state_version)).to_dict()
+                else: outcome=self.cloud.run(action.name,actor=self.actor,auth_context=self.auth_context,**arguments).to_dict()
+                is_error=outcome.get("ok") is False
+                result={"content":[{"type":"text","text":json.dumps(outcome,indent=2)}],"structuredContent":outcome,"isError":is_error}
             else: return {"jsonrpc":"2.0","id":ident,"error":{"code":-32601,"message":f"Method not found: {method}"}}
             return {"jsonrpc":"2.0","id":ident,"result":result}
         except Exception as error:

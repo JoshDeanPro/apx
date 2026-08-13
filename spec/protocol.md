@@ -82,11 +82,19 @@ budgets in Action constraints. Clients MUST respect `retry_after`, rate-limit,
 cooldown, lock, circuit, and budget responses. Core does not prescribe distributed
 locking or a budget service.
 
+The reference `budget` constraint supports `maximum` executions within
+`window_seconds`, scoped to actor and Action. Providers MAY enforce richer monetary or
+resource budgets, but MUST expose exhaustion as a structured limit response.
+
 After execution, Providers SHOULD reread authoritative state and evaluate declared
 postconditions. They MUST NOT report `completed` when verification fails. A
 consequential completion returns a secret-free receipt. If a response is lost, the
 Client uses request status or receipt lookup; it MUST NOT blindly retry an ambiguous
 unsafe Action.
+
+Long-running handlers return `accepted` and an `operation_id`. Clients MAY disconnect
+and later use operation status. Completion produces the same verified result/receipt
+as an immediate Action; APX does not require an always-open connection or task queue.
 
 ## Errors
 

@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-AXP_VERSION = "0.1"
+APX_PROTOCOL_VERSION = "0.1"
+AXP_VERSION = APX_PROTOCOL_VERSION  # Deprecated Python alias; remove at APX 1.0.
 
 VERSION_STATES = ("current","supported","deprecated","unsupported","unknown","update_available")
 
@@ -87,7 +88,7 @@ class Resource:
     version: "VersionInfo | None" = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"resource",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"resource",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -110,7 +111,7 @@ class VersionInfo:
             raise ValueError(f"invalid compatibility state {self.compatibility!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"version.info",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"version.info",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -121,7 +122,7 @@ class ResourceRelationship:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"resource.relationship",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"resource.relationship",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -133,7 +134,7 @@ class Connection:
     options: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"connection",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"connection",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -145,7 +146,7 @@ class Capability:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"capability",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"capability",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -159,11 +160,11 @@ class Actor:
             raise ValueError(f"invalid actor kind {self.kind!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"actor",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"actor",**asdict(self)}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "Actor":
-        if value.get("apx",value.get("axp")) != AXP_VERSION or value.get("type") != "actor":
+        if value.get("apx") != APX_PROTOCOL_VERSION or value.get("type") != "actor":
             raise ValueError("not an AXP 0.1 actor")
         return cls(id=value["id"],kind=value["kind"],display_name=value.get("display_name"))
 
@@ -189,7 +190,7 @@ class AuthContext:
     session_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"auth.context",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"auth.context",**asdict(self)}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "AuthContext":
@@ -206,7 +207,7 @@ class PolicyDecision:
     scope: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"policy.decision",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"policy.decision",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -251,7 +252,7 @@ class ActionDefinition:
         if policy not in RETRY_POLICIES: raise ValueError(f"invalid retry policy {policy!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"action.definition",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"action.definition",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -280,11 +281,11 @@ class ActionRequest:
     protocol_version: str = AXP_VERSION
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"action.request",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"action.request",**asdict(self)}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ActionRequest":
-        if value.get("apx",value.get("axp")) != AXP_VERSION or value.get("type") != "action.request":
+        if value.get("apx") != APX_PROTOCOL_VERSION or value.get("type") != "action.request":
             raise ValueError("not an AXP 0.1 action.request")
         known=("action","target","input","request_id","created_at","actor","source","correlation_id","auth_context","delegated_by","client","device","mission","confirmation","expires_at","nonce","prepared_action_id","idempotency_key","authoritative_state_version","protocol_version")
         values={key:value[key] for key in known if key in value}
@@ -324,7 +325,7 @@ class ActionReceipt:
         if self.status not in ACTION_STATUSES: raise ValueError(f"invalid receipt status {self.status!r}; expected one of {ACTION_STATUSES}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"action.receipt",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"action.receipt",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -348,11 +349,11 @@ class ActionResult:
     def host(self) -> str | None: return self.target.get("host")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"action.result","action":self.action,"request_id":self.request_id,"target":self.target,"ok":self.ok,"status":self.status,"result":self.result,"error":self.error.to_dict() if self.error else None,"receipt":self.receipt.to_dict() if self.receipt else None,"data":self.result,"host":self.host}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"action.result","action":self.action,"request_id":self.request_id,"target":self.target,"ok":self.ok,"status":self.status,"result":self.result,"error":self.error.to_dict() if self.error else None,"receipt":self.receipt.to_dict() if self.receipt else None,"data":self.result,"host":self.host}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ActionResult":
-        if value.get("apx",value.get("axp")) != AXP_VERSION or value.get("type") != "action.result":
+        if value.get("apx") != APX_PROTOCOL_VERSION or value.get("type") != "action.result":
             raise ValueError("not an AXP 0.1 action.result")
         error=StructuredError.from_dict(value["error"]) if value.get("error") else None
         receipt=None
@@ -396,7 +397,7 @@ class PreparedAction:
             raise ValueError(f"invalid confirmation_required {self.confirmation_required!r}; expected one of {CONFIRMATION_LEVELS}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"action.prepared",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"action.prepared",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -417,7 +418,7 @@ class ActorDescriptor:
         if self.kind not in ACTOR_KINDS: raise ValueError(f"invalid actor kind {self.kind!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"actor.descriptor",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"actor.descriptor",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -441,7 +442,7 @@ class CredentialHandle:
             raise ValueError(f"invalid credential mode {self.mode!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"credential.handle",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"credential.handle",**asdict(self)}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "CredentialHandle":
@@ -458,7 +459,7 @@ class SecretInput:
     delivery: str = "provider_secure_input"
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"secret.input","reference":self.reference,"purpose":self.purpose,"delivery":self.delivery}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"secret.input","reference":self.reference,"purpose":self.purpose,"delivery":self.delivery}
 
 
 @dataclass(frozen=True)
@@ -472,11 +473,11 @@ class Event:
     correlation_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"event",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"event",**asdict(self)}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "Event":
-        if value.get("apx",value.get("axp")) != AXP_VERSION or value.get("type") != "event": raise ValueError("not an APX 0.1 event")
+        if value.get("apx") != APX_PROTOCOL_VERSION or value.get("type") != "event": raise ValueError("not an APX 0.1 event")
         return cls(**{key:value[key] for key in ("name","source","subject","data","event_id","occurred_at","correlation_id") if key in value})
 
 
@@ -494,7 +495,7 @@ class Context:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"context",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"context",**asdict(self)}
 
     @classmethod
     def from_mapping(cls, id: str, scope: str, value: dict[str, Any]) -> "Context":
