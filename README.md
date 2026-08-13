@@ -38,6 +38,10 @@ localcloud doctor
 localcloud plugins
 localcloud plugin NAME
 localcloud relationships
+localcloud resources
+localcloud groups
+localcloud group show GROUP
+localcloud group add|remove GROUP RESOURCE
 localcloud create plugin NAME
 localcloud create action resource.verb
 localcloud create adapter NAME
@@ -101,8 +105,9 @@ Every execution becomes a typed, serializable request and result:
 {"axp":"0.1","type":"action.result","action":"service.status","ok":true,"result":{"service":"caddy"}}
 ```
 
-`localcloud.axp` defines Resource, Capability, ActionDefinition, ActionRequest,
-ActionResult, Event, Context, and StructuredError. These are plain dataclasses;
+`localcloud.axp` defines Resource, Capability, VersionInfo, ActionDefinition,
+ActionRequest, ActionResult, Event, Context, and StructuredError. Resources may
+carry arbitrary groups and tags. These are plain dataclasses;
 AXP 0.1 adds no networking, negotiation, authentication, or storage system.
 
 The in-process `EventRouter` supports exact or wildcard subscriptions. Core
@@ -120,6 +125,9 @@ kind = "provider"
 source = "environment"
 reference = "PROVIDER_API_TOKEN"
 scopes = ["read"]
+groups = ["production", "domains"]
+tags = ["scoped"]
+api_version = "v4"
 ```
 
 Values are re-read when an action needs them, so replacing an environment value
@@ -146,6 +154,11 @@ command = ["python3", "/absolute/path/server.py"]
 Its implementation stays in that MCP server. LOCALCLOUD performs initialize,
 discovers tools, and adapts them as actions such as
 `existing_tools.some_tool`. It does not run a federation service.
+
+A Host can also declare ordered `connections`, including `ssh` and
+`tailscale_ssh`. `host.connection.status` tests them in order and selects the
+first usable method. Tailscale remains optional and is inspected through its
+local CLI; LocalCloud never changes tailnet policy or reads auth keys.
 
 ## Architecture
 
@@ -174,6 +187,9 @@ Python / CLI / MCP
 - `credentials.py`: lazy environment references and shared redaction.
 - `adapters/`: local, SSH, HTTPS/API, webhook, and MCP stdio connections.
 - `scaffold.py`: small plugin, action, and adapter generators.
+- `system.py`: read-only connectivity, Tailscale, cron/timer, and launchd discovery.
+- `service_managers.py`: explicit systemd/launchd capability contracts.
+- `integrations/`: modular provider and database plugins.
 
 Configured Project records relate development, production, services, domains,
 archives, and context. Discovery remains authoritative for installed host
@@ -194,6 +210,8 @@ Capability-specific:
 - `rsync` on both participating hosts for file sync
 - `systemctl` for systemd service actions and journald for log actions
 - Git for repository inspection
+- provider network access only when a configured provider action is invoked
+- native database clients only for the capabilities that use them
 
 LOCALCLOUD reports a missing capability instead of installing it.
 
@@ -213,12 +231,31 @@ Plugins publish inspectable metadata: name, version, description, AXP
 compatibility, resources/actions/events, optional dependencies, and credential
 requirements. Metadata inspection does not invoke plugin actions.
 
+Bundled, standard-library integrations cover Porkbun, Cloudflare, GoDaddy,
+Discord, OpenAI, Airtable, DigitalOcean, Supabase, PostgreSQL/MySQL resources,
+and AWS/DigitalOcean/Supabase database representations. They are shown as
+`available_not_configured` until explicitly enabled. Provider actions are a
+curated read-only catalog, not a dump of every endpoint. No provider SDK is a
+base dependency.
+
+`VersionInfo` separates installed, configured, detected, API-family, supported,
+deprecated, recommended, and latest-known information. Compatibility is one of
+`current`, `supported`, `deprecated`, `unsupported`, `unknown`, or
+`update_available`; LocalCloud reports this information and never upgrades a
+provider or host automatically.
+The official references used for bundled metadata are recorded in
+[`docs/provider-versions.md`](docs/provider-versions.md).
+
 ## Relationships and extension scaffolds
 
 `localcloud relationships` returns AXP `ResourceRelationship` records. Project
 locations automatically become relationships such as `developed_on`,
 `runs_on`, and `backed_up_to`; arbitrary relationships may be declared in TOML.
 There is no graph database.
+
+`localcloud groups`, `localcloud group show`, and `resource.list` provide simple
+group/tag queries. CLI group edits use a small user-owned JSON overlay beside
+the TOML file rather than introducing a database.
 
 `localcloud create plugin|action|adapter NAME` writes two to four small files.
 The plugin scaffold is an installable entry-point package with metadata, one
@@ -234,6 +271,9 @@ available to humans through `localcloud run`. Destructive actions still require
 accepts and validates SSH hosts, and writes minimal TOML. It never installs
 software. `localcloud doctor` validates configuration, connectivity, host
 capabilities, missing optional commands, plugin health, and MCP tool creation.
+It also summarizes integrations, API compatibility, credential health,
+configured databases, service managers, schedulers, connections, and Tailscale
+availability without contacting unconfigured providers.
 
 ## Safety
 

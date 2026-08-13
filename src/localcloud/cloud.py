@@ -8,7 +8,9 @@ from .axp import ActionRequest, ActionResult, Connection, Event, Resource, Resou
 from .config import load, load_document
 from .credentials import CredentialRegistry
 from .events import EventRouter
+from .groups import GroupStore
 from .plugins import PluginManager
+from .system import connection_list, connection_status, scheduler_inspect, scheduler_list, tailscale_status
 
 
 class LocalCloud:
@@ -18,13 +20,29 @@ class LocalCloud:
         self.config_path,self.config=load_document(config)
         self.hosts, self.projects = load(config)
         self.credentials=CredentialRegistry.from_config(self.config.get("credentials",{}))
+        self.group_store=GroupStore(self.config_path,self.config.get("resources",{}))
         self.core = CoreActions(self.hosts, self.projects)
         self.actions = build_registry(self.core)
+        self._register_operational_actions()
         self.connections=[]; self.adapters={}; self.connection_health=[]
         self._load_connections()
         self.events = EventRouter()
         self.plugin_manager = PluginManager(self.actions,self.events,self)
         self.plugins = self.plugin_manager.load(config) if plugins else []
+
+    def _register_operational_actions(self) -> None:
+        obj=lambda properties,required=():{"type":"object","properties":properties,"required":list(required),"additionalProperties":False}; string={"type":"string"}
+        self.actions.register(RegisteredAction("host.connection.list","List configured host connection methods",lambda host:connection_list(self.core.host(host)),obj({"host":string},("host",))))
+        self.actions.register(RegisteredAction("host.connection.status","Test host connection methods in fallback order",lambda host:connection_status(self.core.host(host)),obj({"host":string},("host",))))
+        self.actions.register(RegisteredAction("tailscale.status","Inspect Tailscale on a host",lambda host:tailscale_status(self.core.host(host)),obj({"host":string},("host",))))
+        self.actions.register(RegisteredAction("tailscale.peer.list","List safely visible Tailscale peers",lambda host:{"host":host,"peers":tailscale_status(self.core.host(host))["peers"]},obj({"host":string},("host",))))
+        self.actions.register(RegisteredAction("scheduler.list","Discover cron, systemd timer, and launchd scheduled jobs",lambda host:scheduler_list(self.core.host(host)),obj({"host":string},("host",))))
+        self.actions.register(RegisteredAction("scheduler.inspect","Inspect one scheduled job",lambda host,job:scheduler_inspect(self.core.host(host),job),obj({"host":string,"job":string},("host","job"))))
+        self.actions.register(RegisteredAction("group.list","List resource groups",self.group_list,obj({})))
+        self.actions.register(RegisteredAction("group.inspect","List resources in a group",self.group_inspect,obj({"group":string},("group",))))
+        self.actions.register(RegisteredAction("group.add","Add a resource to a group",lambda resource,group:self.group_change(resource,group,True),obj({"resource":string,"group":string},("resource","group")),False,False))
+        self.actions.register(RegisteredAction("group.remove","Remove a resource from a group",lambda resource,group:self.group_change(resource,group,False),obj({"resource":string,"group":string},("resource","group")),False,False))
+        self.actions.register(RegisteredAction("resource.list","List/filter AXP resources",self.resource_list,obj({"kind":string,"group":string,"tag":string})))
 
     def _load_connections(self) -> None:
         for value in self.config.get("connections",[]):
@@ -73,9 +91,29 @@ class LocalCloud:
     def emit(self, event: Event) -> Event: return self.events.emit(event)
 
     def resources(self) -> list[Resource]:
-        values=[Resource(id=f"host:{host.name}",kind="host",name=host.name,attributes=host.to_dict()) for host in self.hosts.values()]
-        values.extend(Resource(id=f"project:{project.name}",kind="project",name=project.name,attributes={"description":project.description,"services":project.services,"domains":project.domains}) for project in self.projects.values())
-        return values+self.plugin_manager.resources+self.plugin_manager.discover_resources()
+        values=[Resource(id=f"host:{host.name}",kind="host",name=host.name,attributes={"transport":host.transport,"target":host.target,"connections":connection_list(host)["connections"]},groups=host.groups,tags=host.tags) for host in self.hosts.values()]
+        values.extend(Resource(id=f"project:{project.name}",kind="project",name=project.name,attributes={"description":project.description,"services":project.services,"domains":project.domains},groups=project.groups,tags=project.tags) for project in self.projects.values())
+        return [self.group_store.apply(value) for value in values+self.plugin_manager.resources+self.plugin_manager.discover_resources()]
+
+    def group_list(self):
+        groups={}
+        for resource in self.resources():
+            for group in resource.groups: groups.setdefault(group,[]).append(resource.id)
+        return {"groups":[{"name":name,"resources":sorted(resources)} for name,resources in sorted(groups.items())]}
+
+    def group_inspect(self,group: str):
+        return {"group":group,"resources":[resource.to_dict() for resource in self.resources() if group in resource.groups or group in resource.tags]}
+
+    def group_change(self,resource: str,group: str,add: bool):
+        if resource not in {item.id for item in self.resources()}: raise ValueError(f"unknown resource {resource!r}")
+        return self.group_store.change(resource,group,add)
+
+    def resource_list(self,kind: str | None = None,group: str | None = None,tag: str | None = None):
+        resources=self.resources()
+        if kind: resources=[item for item in resources if item.kind==kind]
+        if group: resources=[item for item in resources if group in item.groups]
+        if tag: resources=[item for item in resources if tag in item.tags]
+        return {"resources":[item.to_dict() for item in resources]}
 
     def relationships(self) -> list[ResourceRelationship]:
         relationships=[]
@@ -88,7 +126,7 @@ class LocalCloud:
 
     def capabilities(self, host: str) -> list[Capability]:
         info=self.core.host_info(host)
-        return [Capability(id=name,resource=f"host:{host}",available=value["available"],metadata={"command":value.get("command")}) for name,value in info["capabilities"].items()]+self.plugin_manager.capabilities+self.plugin_manager.discover_capabilities(host)
+        return [Capability(id=name,resource=f"host:{host}",available=value["available"],metadata={"command":value.get("command"),"version":value.get("version")}) for name,value in info["capabilities"].items()]+self.plugin_manager.capabilities+self.plugin_manager.discover_capabilities(host)
 
     def contexts(self) -> list[Context]:
         return [Context.from_mapping(f"project:{project.name}","project",project.context) for project in self.projects.values()]+self.plugin_manager.contexts+self.plugin_manager.provide_contexts()

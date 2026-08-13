@@ -22,9 +22,13 @@ class CredentialReference:
     scopes: tuple[str,...] = ()
     description: str = ""
     metadata: dict[str,Any] = field(default_factory=dict)
+    groups: tuple[str,...] = ()
+    tags: tuple[str,...] = ()
+    api_family: str | None = None
+    api_version: str | None = None
 
     def to_dict(self) -> dict[str,Any]:
-        return {"id":self.id,"kind":self.kind,"source":self.source,"reference":self.reference,"scopes":self.scopes,"description":self.description,"metadata":self.metadata}
+        return {"id":self.id,"kind":self.kind,"source":self.source,"reference":self.reference,"scopes":self.scopes,"description":self.description,"groups":self.groups,"tags":self.tags,"api_family":self.api_family,"api_version":self.api_version}
 
 
 class CredentialRegistry:
@@ -34,7 +38,8 @@ class CredentialRegistry:
     def from_config(cls, values: dict[str,Any]) -> "CredentialRegistry":
         refs={}
         for name,value in values.items():
-            refs[name]=CredentialReference(id=name,kind=value.get("kind",name),source=value.get("source","environment"),reference=value.get("reference",""),scopes=tuple(value.get("scopes",())),description=value.get("description",""),metadata={k:v for k,v in value.items() if k not in {"kind","source","reference","scopes","description"}})
+            known={"kind","provider","source","reference","scopes","description","groups","tags","api_family","api_version"}
+            refs[name]=CredentialReference(id=name,kind=value.get("provider",value.get("kind",name)),source=value.get("source","environment"),reference=value.get("reference",""),scopes=tuple(value.get("scopes",())),description=value.get("description",""),metadata={k:v for k,v in value.items() if k not in known},groups=tuple(value.get("groups",())),tags=tuple(value.get("tags",())),api_family=value.get("api_family"),api_version=value.get("api_version"))
         return cls(refs)
 
     def get(self, credential_id: str) -> CredentialReference:
@@ -53,7 +58,7 @@ class CredentialRegistry:
         results=[]
         for reference in self.references.values():
             available=reference.source=="environment" and bool(os.environ.get(reference.reference,""))
-            results.append({"id":reference.id,"kind":reference.kind,"configured":True,"available":available,"source":reference.source,"reference":reference.reference,"scopes":reference.scopes,"description":reference.description})
+            results.append({"id":reference.id,"kind":reference.kind,"configured":True,"available":available,"source":reference.source,"reference":reference.reference,"scopes":reference.scopes,"description":reference.description,"groups":reference.groups,"tags":reference.tags,"api_family":reference.api_family,"api_version":reference.api_version})
         return results
 
     def redact(self, value: Any) -> Any:

@@ -8,5 +8,5 @@ build/
 .DS_Store
 .localcloud/
 localcloud.toml
+*.groups.json
 !localcloud.example.toml
-

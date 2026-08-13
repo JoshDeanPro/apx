@@ -45,5 +45,33 @@ class SSHTransport(Transport):
         return CommandResult(tuple(command), result.returncode, result.stdout, result.stderr)
 
 
+class FallbackTransport(Transport):
+    def __init__(self, host: Host, candidates: list[Transport]):
+        super().__init__(host); self.candidates=candidates
+
+    def run(self, argv: list[str], *, timeout: int = 30, input_text: str | None = None) -> CommandResult:
+        errors=[]
+        for transport in self.candidates:
+            try:
+                result=transport.run(argv,timeout=timeout,input_text=input_text)
+                if result.ok or result.exit_code not in {255}: return result
+                errors.append(result.stderr.strip())
+            except TransportError as error: errors.append(str(error))
+        raise TransportError("all configured connections failed" + (f": {'; '.join(filter(None,errors))}" if errors else ""))
+
+
+def transports_for(host: Host) -> list[Transport]:
+    definitions=list(host.connections) or [{"adapter":host.transport,"target":host.target}]
+    transports=[]
+    for value in definitions:
+        adapter=value.get("adapter",value.get("transport","ssh"))
+        candidate=Host(host.name,adapter,value.get("target"),(),host.groups,host.tags)
+        if adapter=="local": transports.append(LocalTransport(candidate))
+        elif adapter in {"ssh","tailscale_ssh"}: transports.append(SSHTransport(candidate))
+    return transports
+
+
 def transport_for(host: Host) -> Transport:
-    return LocalTransport(host) if host.transport == "local" else SSHTransport(host)
+    candidates=transports_for(host)
+    if not candidates: raise TransportError(f"host {host.name!r} has no supported connections")
+    return candidates[0] if len(candidates)==1 else FallbackTransport(host,candidates)

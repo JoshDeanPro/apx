@@ -1,10 +1,12 @@
 version = 1
 
 [credentials.discord_webhook]
-kind = "discord"
+provider = "discord"
 source = "environment"
 reference = "LOCALCLOUD_DISCORD_WEBHOOK_URL"
 description = "Optional outbound Discord notification webhook."
+groups = ["notifications"]
+tags = ["webhook"]
 
 # An existing stdio MCP server can be adapted into namespaced AXP actions.
 # [[connections]]
@@ -15,11 +17,26 @@ description = "Optional outbound Discord notification webhook."
 [[hosts]]
 name = "workstation"
 transport = "local"
+groups = ["development"]
+tags = ["operator"]
 
 [[hosts]]
 name = "server"
 transport = "ssh"
 target = "my-server"
+groups = ["production"]
+
+# Hosts may have ordered connection methods. Existing transport/target remains
+# compatible and is used when this list is absent.
+# [[hosts.connections]]
+# id = "server-lan"
+# adapter = "ssh"
+# target = "server-lan"
+# preferred = true
+# [[hosts.connections]]
+# id = "server-tailnet"
+# adapter = "tailscale_ssh"
+# target = "server.example-tailnet.ts.net"
 
 [[projects]]
 name = "example"
@@ -38,6 +55,24 @@ architecture = ["Describe stable architectural facts here."]
 commands = {test = "python -m pytest"}
 relationships = [{host = "workstation", role = "development"}]
 deployment = {method = "existing project scripts", preference = "verify after deployment"}
+
+# Databases are resources LocalCloud can understand; LocalCloud does not need
+# one itself. Passwords remain credential references.
+# [[databases]]
+# id = "example-db"
+# engine = "postgres"
+# host = "db.example.internal"
+# port = 5432
+# database = "example"
+# credential = "example-db-password"
+# provider = "supabase"
+# groups = ["production", "database", "example"]
+
+# Provider integrations remain available but inactive until explicitly enabled.
+# [plugins.cloudflare]
+# enabled = true
+# credential = "cloudflare-token"
+# groups = ["domains", "production"]
 
 # Optional event-to-provider integration. The secret stays in the named
 # environment variable and never appears in this file.

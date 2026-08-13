@@ -8,6 +8,8 @@ from uuid import uuid4
 
 AXP_VERSION = "0.1"
 
+VERSION_STATES = ("current","supported","deprecated","unsupported","unknown","update_available")
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -33,9 +35,35 @@ class Resource:
     name: str
     attributes: dict[str, Any] = field(default_factory=dict)
     capabilities: tuple[str, ...] = ()
+    groups: tuple[str, ...] = ()
+    tags: tuple[str, ...] = ()
+    version: "VersionInfo | None" = None
 
     def to_dict(self) -> dict[str, Any]:
         return {"axp":AXP_VERSION,"type":"resource",**asdict(self)}
+
+
+@dataclass(frozen=True)
+class VersionInfo:
+    installed: str | None = None
+    configured: str | None = None
+    detected: str | None = None
+    api_family: str | None = None
+    api_version: str | None = None
+    supported: tuple[str, ...] = ()
+    deprecated: tuple[str, ...] = ()
+    recommended: str | None = None
+    latest_known: str | None = None
+    compatibility: str = "unknown"
+    source: str = "configuration"
+    notes: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.compatibility not in VERSION_STATES:
+            raise ValueError(f"invalid compatibility state {self.compatibility!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"version.info",**asdict(self)}
 
 
 @dataclass(frozen=True)

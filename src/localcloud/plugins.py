@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol, TYPE_CHECKING
 
 from .actions import ActionRegistry, RegisteredAction
-from .axp import Capability, Context, Event, Resource
+from .axp import Capability, Context, Event, Resource, VersionInfo
 from .config import default_config_path
 from .events import EventRouter
 
@@ -58,6 +58,8 @@ class PluginMetadata:
     events_listened: tuple[str,...] = ()
     optional_dependencies: tuple[str,...] = ()
     credentials: tuple[str,...] = ()
+    version_info: VersionInfo | None = None
+    configuration: tuple[str,...] = ()
 
     def to_dict(self):
         from dataclasses import asdict
@@ -101,8 +103,27 @@ class PluginManager:
 
     def load(self, config: str | Path | None) -> list[str]:
         path=Path(config).expanduser() if config else default_config_path()
-        settings={}
-        if path.exists(): settings=tomllib.loads(path.read_text(encoding="utf-8")).get("plugins",{})
+        document={}; settings={}
+        if path.exists():
+            document=tomllib.loads(path.read_text(encoding="utf-8")); settings=document.get("plugins",{})
+        builtins={
+            "porkbun":"porkbun", "cloudflare":"cloudflare", "godaddy":"godaddy",
+            "discord":"discord", "openai":"openai", "airtable":"airtable",
+            "digitalocean":"digitalocean", "supabase":"supabase",
+            "aws":"aws",
+        }
+        for name,module_name in builtins.items():
+            try:
+                module=__import__(f"localcloud.integrations.{module_name}",fromlist=["Plugin"])
+                plugin=module.Plugin(settings.get(name,{}))
+                if settings.get(name,{}).get("enabled",False): self._setup(name,plugin)
+                else:
+                    self.metadata[name]=plugin.metadata
+                    self.health.append({"name":name,"ok":True,"configured":False,"status":"available_not_configured"})
+            except Exception as error: self.health.append({"name":name,"ok":False,"error":str(error)})
+        from .integrations.databases.plugin import Plugin as DatabasePlugin
+        self._setup("databases",DatabasePlugin())
+        self.health[-1].update(configured=bool(document.get("databases")),status="ready" if document.get("databases") else "discovery_only")
         discord=settings.get("discord_webhook",{})
         if discord.get("enabled",False):
             try:

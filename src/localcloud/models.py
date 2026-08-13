@@ -9,6 +9,9 @@ class Host:
     name: str
     transport: str
     target: str | None = None
+    connections: tuple[dict[str, Any], ...] = ()
+    groups: tuple[str, ...] = ()
+    tags: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]: return asdict(self)
 
@@ -28,5 +31,7 @@ class Project:
     services: tuple[str, ...] = ()
     domains: tuple[str, ...] = ()
     context: dict[str, Any] = field(default_factory=dict)
+    groups: tuple[str, ...] = ()
+    tags: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]: return asdict(self)

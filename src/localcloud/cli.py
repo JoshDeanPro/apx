@@ -25,6 +25,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("plugins",help="list plugin metadata and health")
     plugin=sub.add_parser("plugin",help="inspect a plugin"); plugin.add_argument("name")
     sub.add_parser("relationships",help="list resource relationships")
+    sub.add_parser("resources",help="list AXP resources")
+    sub.add_parser("groups",help="list resource groups")
+    group=sub.add_parser("group",help="inspect or change a group"); group.add_argument("verb",choices=["show","add","remove"]); group.add_argument("name"); group.add_argument("resource",nargs="?")
     create=sub.add_parser("create",help="scaffold an extension"); create.add_argument("kind",choices=["plugin","action","adapter"]); create.add_argument("name"); create.add_argument("--output",default=".")
     run=sub.add_parser("run",help="run any configured AXP action"); run.add_argument("action"); run.add_argument("--input",default="{}",help="JSON object of action inputs")
     sub.add_parser("hosts",help="list configured hosts")
@@ -60,6 +63,12 @@ def main(argv: list[str] | None = None) -> int:
         try: output(cloud.plugin_manager.inspect(args.name)); return 0
         except KeyError as error: output({"ok":False,"error":str(error)}); return 1
     if args.command=="relationships": output({"relationships":[item.to_dict() for item in cloud.relationships()]}); return 0
+    if args.command=="resources": output({"resources":[item.to_dict() for item in cloud.resources()]}); return 0
+    if args.command=="groups": output(cloud.group_list()); return 0
+    if args.command=="group":
+        if args.verb=="show": output(cloud.group_inspect(args.name)); return 0
+        if not args.resource: output({"ok":False,"error":"resource is required for group add/remove"}); return 2
+        result=cloud.run(f"group.{args.verb}",resource=args.resource,group=args.name); output(result.to_dict()); return 0 if result.ok else 1
     if args.command=="run":
         try:
             inputs=json.loads(args.input)

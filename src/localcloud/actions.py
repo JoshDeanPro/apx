@@ -10,6 +10,7 @@ from typing import Any, Callable
 from .discovery import inspect_host
 from .axp import ActionDefinition
 from .models import Host, Project
+from .service_managers import manager_for
 from .transports import transport_for
 
 
@@ -76,14 +77,16 @@ class CoreActions:
                 for line in result.stdout.splitlines()[1:]:
                     parts=line.split(None,2)
                     if len(parts)==3: services.append({"name":parts[2],"pid":None if parts[0]=="-" else parts[0],"last_exit_status":parts[1]})
-                return {"host":host,"manager":"launchd","services":services}
+                manager=manager_for(info)
+                return {"host":host,"manager":"launchd","manager_capabilities":manager.__dict__ if manager else None,"services":services}
             return {"host":host,"manager":None,"services":[],"note":"no supported service manager was discovered"}
         r = transport_for(item).run(["systemctl", "list-units", "--type=service", "--all", "--no-pager", "--no-legend"], timeout=30)
         services=[]
         for line in r.stdout.splitlines():
             parts=line.replace("●", " ").split(None,4)
             if len(parts)>=4: services.append({"name":parts[0],"load":parts[1],"active":parts[2],"state":parts[3],"description":parts[4] if len(parts)>4 else ""})
-        return {"host":host,"manager":"systemd","services":services}
+        manager=manager_for(info)
+        return {"host":host,"manager":"systemd","manager_capabilities":manager.__dict__ if manager else None,"services":services}
 
     def service_status(self, host: str, service: str) -> dict[str, Any]:
         item=self.host(host); unit=_unit(service)
@@ -101,7 +104,7 @@ class CoreActions:
         item=self.host(host); unit=_unit(service)
         if not inspect_host(item)["capabilities"]["systemd"]["available"]:
             raise ActionError(f"service.{verb} currently requires systemd; {host} does not provide it")
-        prefix=[] if item.transport == "ssh" else (["sudo","-n"] if hasattr(__import__('os'),'geteuid') and __import__('os').geteuid()!=0 else [])
+        prefix=[] if item.transport != "local" else (["sudo","-n"] if hasattr(__import__('os'),'geteuid') and __import__('os').geteuid()!=0 else [])
         r=transport_for(item).run([*prefix,"systemctl",verb,unit],timeout=60)
         if not r.ok: raise ActionError(r.stderr.strip() or f"systemctl {verb} failed")
         return self.service_status(host,unit)
@@ -175,6 +178,7 @@ def build_registry(core: CoreActions) -> ActionRegistry:
       ("host.status","Read host status",core.host_status,obj({"host":s},["host"]),True,False),
       ("service.list","List services",core.service_list,obj({"host":s},["host"]),True,False),
       ("service.status","Read service status",core.service_status,obj({"host":s,"service":s},["host","service"]),True,False),
+      ("service.inspect","Inspect service-manager state",core.service_status,obj({"host":s,"service":s},["host","service"]),True,False),
       ("service.start","Start a service",lambda **k:core.service_control("start",**k),obj({"host":s,"service":s},["host","service"]),False,False),
       ("service.stop","Stop a service",lambda **k:core.service_control("stop",**k),obj({"host":s,"service":s},["host","service"]),False,True),
       ("service.restart","Restart a service",lambda **k:core.service_control("restart",**k),obj({"host":s,"service":s},["host","service"]),False,True),
