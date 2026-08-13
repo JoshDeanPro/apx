@@ -27,7 +27,8 @@ class AXPTests(unittest.TestCase):
         result=ActionResult(request.action,False,error=StructuredError("service.missing","not found",{"service":"example"}),request_id=request.request_id,target=request.target)
         decoded=ActionResult.from_dict(json.loads(json.dumps(result.to_dict())))
         self.assertEqual(decoded.error.code,"service.missing")
-        self.assertEqual(decoded.to_dict()["axp"],"0.1")
+        self.assertEqual(decoded.to_dict()["apx"],"0.1")
+        self.assertNotIn("axp",decoded.to_dict())
 
     def test_structured_execution_error(self):
         with tempfile.TemporaryDirectory() as directory:

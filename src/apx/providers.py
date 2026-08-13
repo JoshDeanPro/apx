@@ -237,6 +237,9 @@ class HTTPProviderAdapter:
         if method=="GET" and path.startswith("/apx/v0.1/status/"):
             result=self.session.status(path.rsplit("/",1)[-1]) if self.session else None
             return (200,headers,result.to_dict()) if result else (404,headers,{"error":{"code":"invalid_request","message":"request not found"}})
+        if method=="GET" and path.startswith("/apx/v0.1/operations/"):
+            result=self.session.operation_status(path.rsplit("/",1)[-1]) if self.session else None
+            return (200,headers,result.to_dict()) if result else (404,headers,{"error":{"code":"invalid_request","message":"operation not found"}})
         if method=="GET" and path.startswith("/apx/v0.1/receipts/"):
             receipt=self.session.receipt(path.rsplit("/",1)[-1]) if self.session else self.provider.get_receipt(path.rsplit("/",1)[-1])
             return (200,headers,receipt.to_dict()) if receipt else (404,headers,{"error":{"code":"invalid_request","message":"receipt not found"}})

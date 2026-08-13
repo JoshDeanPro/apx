@@ -8,7 +8,7 @@ from pathlib import Path
 
 from jsonschema.validators import Draft202012Validator
 
-from apx import APXClient, ActionRequest, HTTPProviderAdapter, LocalClientTransport, ProviderSession
+from apx import APXClient, ActionProvider, ActionRequest, CredentialHandle, HTTPClientTransport, HTTPProviderAdapter, LocalClientTransport, OperationAccepted, ProviderSession
 from apx.conformance import client_conformance, provider_conformance
 from apx.examples.subscriptions import build_reference_provider
 
@@ -88,6 +88,62 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(provider_conformance(self.provider),[])
         self.assertEqual(client_conformance(self.client,read_action="subscription.inspect"),[])
 
+    def test_durable_idempotency_receipt_and_status_survive_restart(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as directory:
+            database=Path(directory)/"provider.sqlite3"
+            prepared=self.client.prepare("subscription.cancel",actor="human:owner")
+            # Use a durable session from the preparation onward.
+            first=ProviderSession(self.provider,state_path=database); durable=APXClient(LocalClientTransport(first))
+            prepared=durable.prepare("subscription.cancel",actor="human:owner")
+            durable.authorize(prepared.prepared_action_id,confirmation(prepared,"durable"))
+            result=durable.execute("subscription.cancel",actor="human:owner",prepared_action_id=prepared.prepared_action_id,
+                idempotency_key="durable-cancel",authoritative_state_version=prepared.authoritative_state_version)
+            receipt_id=result.receipt.receipt_id; request_id=result.request_id; first.close()
+            restored=ProviderSession(self.provider,state_path=database); recovered=APXClient(LocalClientTransport(restored))
+            duplicate=recovered.execute("subscription.cancel",actor="human:owner",idempotency_key="durable-cancel")
+            self.assertEqual(duplicate.receipt.receipt_id,receipt_id)
+            self.assertEqual(recovered.status(request_id).receipt.receipt_id,receipt_id)
+            self.assertEqual(recovered.receipt(receipt_id).status,"completed"); restored.close()
+
+    def test_long_running_operation_and_budget(self):
+        provider=ActionProvider("jobs.local","Jobs")
+        calls={"count":0}
+        @provider.action("project.deploy",risk="account_change",confirmation="none",idempotent=True,retry="idempotency_required",
+            constraints={"budget":{"maximum":1,"window_seconds":60}})
+        def deploy(): calls["count"]+=1; return OperationAccepted("op-deploy")
+        session=ProviderSession(provider); client=APXClient(LocalClientTransport(session))
+        prepared=client.prepare("project.deploy",actor="agent:test")
+        accepted=client.execute("project.deploy",actor="agent:test",prepared_action_id=prepared.prepared_action_id,idempotency_key="deploy-1")
+        self.assertEqual(accepted.status,"accepted"); self.assertEqual(client.operation_status("op-deploy").status,"accepted")
+        completed=session.complete_operation("op-deploy",result={"deployed":True})
+        self.assertEqual(completed.status,"completed"); self.assertIsNotNone(completed.receipt)
+        prepared2=client.prepare("project.deploy",actor="agent:test")
+        limited=client.execute("project.deploy",actor="agent:test",prepared_action_id=prepared2.prepared_action_id,idempotency_key="deploy-2")
+        self.assertEqual(limited.error.code,"rate_limited"); self.assertEqual(calls["count"],1)
+
+    def test_long_running_operation_survives_provider_restart(self):
+        import tempfile
+        provider=ActionProvider("durable-jobs.local","Durable Jobs")
+        @provider.action("project.deploy",risk="account_change",confirmation="none",idempotent=True,retry="idempotency_required")
+        def deploy(): return OperationAccepted("op-durable")
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/"operations.sqlite3"; first=ProviderSession(provider,state_path=path); client=APXClient(LocalClientTransport(first))
+            prepared=client.prepare("project.deploy",actor="agent:test")
+            accepted=client.execute("project.deploy",actor="agent:test",prepared_action_id=prepared.prepared_action_id,idempotency_key="durable-op")
+            self.assertEqual(accepted.status,"accepted"); first.close()
+            restored=ProviderSession(provider,state_path=path)
+            self.assertEqual(restored.operation_status("op-durable").status,"accepted")
+            self.assertEqual(restored.complete_operation("op-durable",result={"deployed":True}).status,"completed"); restored.close()
+
+    def test_proof_of_possession_requires_transport_verifier(self):
+        prepared=self.client.prepare("subscription.cancel",actor="agent:keyed")
+        self.client.authorize(prepared.prepared_action_id,confirmation(prepared,"pop"))
+        credential=CredentialHandle("cred-1","proof_of_possession","issuer","reference.local",fingerprint="sha256:key")
+        denied=self.client.execute("subscription.cancel",actor="agent:keyed",credential=credential,
+            prepared_action_id=prepared.prepared_action_id,idempotency_key="pop-denied",authoritative_state_version=prepared.authoritative_state_version)
+        self.assertEqual(denied.error.code,"unauthenticated")
+
 
 class InteropTests(unittest.TestCase):
     def test_independent_typescript_client_over_http(self):
@@ -111,6 +167,22 @@ class InteropTests(unittest.TestCase):
             self.assertEqual(run.returncode,0,run.stderr); value=json.loads(run.stdout)
             self.assertEqual(value["status"],"completed"); self.assertFalse(value["renewal"])
         finally: server.shutdown(); server.server_close()
+
+    def test_python_client_against_independent_typescript_provider(self):
+        script=Path(__file__).parents[1]/"interop"/"typescript"/"provider.ts"
+        process=subprocess.Popen(["node",str(script)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        try:
+            port=json.loads(process.stdout.readline())["port"]; client=APXClient(HTTPClientTransport(f"http://127.0.0.1:{port}"))
+            self.assertEqual(client.discover().provider.id,"typescript.local")
+            prepared=client.prepare("subscription.cancel",actor="agent:python")
+            authorized=client.authorize(prepared.prepared_action_id,confirmation(prepared,"python-ts")); self.assertTrue(authorized.ok)
+            result=client.execute("subscription.cancel",actor="agent:python",prepared_action_id=prepared.prepared_action_id,
+                idempotency_key="python-ts",authoritative_state_version=prepared.authoritative_state_version)
+            duplicate=client.execute("subscription.cancel",actor="agent:python",prepared_action_id=prepared.prepared_action_id,
+                idempotency_key="python-ts",authoritative_state_version=prepared.authoritative_state_version)
+            self.assertFalse(result.result["renewal"]); self.assertEqual(result.receipt.receipt_id,duplicate.receipt.receipt_id)
+        finally:
+            process.terminate(); process.wait(timeout=5)
 
 
 if __name__=="__main__": unittest.main()

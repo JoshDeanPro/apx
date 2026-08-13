@@ -7,8 +7,11 @@ receipt recovery.  Transports are deliberately thin wrappers around it.
 """
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+import json
+from pathlib import Path
+import sqlite3
 import threading
 from typing import Any, Callable
 
@@ -41,14 +44,30 @@ class ProviderPolicyDenied(ActionError):
         self.next_actions = next_actions
 
 
+@dataclass(frozen=True)
+class OperationAccepted:
+    """A business handler may return this without requiring an APX job queue."""
+    operation_id: str
+    result: dict[str, Any] | None = None
+
+
+def _prepared(value: dict[str, Any]) -> PreparedAction:
+    clean={key:item for key,item in value.items() if key not in {"apx","type"}}
+    for key in ("side_effects","provider_conditions","preconditions"):
+        if key in clean: clean[key]=tuple(clean[key])
+    return PreparedAction(**clean)
+
+
 class ProviderSession:
     """Reference state engine used identically by local and HTTP providers."""
 
     def __init__(self, provider: ActionProvider, *, policy: Callable[[ActionRequest], bool | tuple[bool, str]] | None = None,
-                 prepare_ttl: int = 120):
+                 prepare_ttl: int = 120, state_path: str | Path | None = None,
+                 credential_verifier: Callable[[ActionRequest], bool] | None = None):
         self.provider = provider
         self.policy = policy or (lambda _request: True)
         self.prepare_ttl = prepare_ttl
+        self.credential_verifier=credential_verifier
         self.prepared: dict[str, PreparedAction] = {}
         self.results: dict[str, ActionResult] = {}
         self.idempotency: dict[str, str] = {}
@@ -58,6 +77,36 @@ class ProviderSession:
         self._last_execution: dict[tuple[str, str], datetime] = {}
         self._lock = threading.RLock()
         self.credentials = CredentialRegistry()
+        self._database=sqlite3.connect(str(state_path),check_same_thread=False) if state_path else None
+        if self._database:
+            self._database.execute("CREATE TABLE IF NOT EXISTS protocol_state (kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(kind,key))")
+            self._database.execute("CREATE TABLE IF NOT EXISTS budget_events (actor TEXT NOT NULL, action TEXT NOT NULL, occurred REAL NOT NULL)")
+            self._database.commit(); self._restore()
+
+    def _put(self,kind: str,key: str,value: dict[str,Any]) -> None:
+        if not self._database: return
+        self._database.execute("INSERT OR REPLACE INTO protocol_state(kind,key,value) VALUES(?,?,?)",(kind,key,json.dumps(value,separators=(",",":"))))
+        self._database.commit()
+
+    def _restore(self) -> None:
+        assert self._database
+        for kind,key,encoded in self._database.execute("SELECT kind,key,value FROM protocol_state"):
+            value=json.loads(encoded)
+            if kind=="prepared": self.prepared[key]=_prepared(value)
+            elif kind=="result":
+                result=ActionResult.from_dict(value); self.results[key]=result
+                if result.status=="accepted" and isinstance(result.result,dict) and result.result.get("operation_id"):
+                    self.operations[result.result["operation_id"]]=result
+            elif kind=="idempotency": self.idempotency[key]=value["request_id"]
+            elif kind=="authorization": self._authorizations.add(key)
+            elif kind=="receipt":
+                raw={name:item for name,item in value.items() if name not in {"apx","type"}}
+                for name in ("side_effects","postconditions","partial_effects"):
+                    if name in raw: raw[name]=tuple(raw[name])
+                self.provider.receipts[key]=ActionReceipt(**raw)
+
+    def close(self) -> None:
+        if self._database: self._database.close()
 
     def _action(self, action_id: str):
         item = self.provider._actions.get(action_id)  # registry remains authoritative
@@ -69,6 +118,7 @@ class ProviderSession:
         result = ActionResult(request.action, False, request_id=request.request_id, target=request.target,
                               status=status, error=StructuredError(code, message, **kwargs))
         self.results[request.request_id] = result
+        self._put("result",request.request_id,result.to_dict())
         return result
 
     def _allowed(self, request: ActionRequest) -> tuple[bool, str]:
@@ -105,6 +155,7 @@ class ProviderSession:
             preconditions=action.preconditions, resolved_terms=values.pop("resolved_terms", {}), **values,
         )
         self.prepared[prepared.prepared_action_id] = prepared
+        self._put("prepared",prepared.prepared_action_id,prepared.to_dict())
         return prepared
 
     def authorize(self, prepared_action_id: str, confirmation: dict[str, Any]) -> ActionResult:
@@ -127,8 +178,10 @@ class ProviderSession:
             return self._error(request, "authorization_required", "confirmation_required",
                                "confirmation must bind to the unexpired prepared action")
         self._authorizations.add(authorization_id)
+        self._put("authorization",authorization_id,{"used":True})
         authorized = replace(prepared, status="authorized")
         self.prepared[prepared_action_id] = authorized
+        self._put("prepared",prepared_action_id,authorized.to_dict())
         return ActionResult(prepared.action, True, result={"prepared_action_id": prepared_action_id},
                             request_id=prepared.request_id, target=prepared.target, status="authorized")
 
@@ -140,6 +193,7 @@ class ProviderSession:
         if prepared.status in {"accepted", "executing", "completed"}:
             return self._error(request, "rejected", "state_conflict", "action crossed the commit boundary")
         self.prepared[prepared_action_id] = replace(prepared, status="cancelled")
+        self._put("prepared",prepared_action_id,self.prepared[prepared_action_id].to_dict())
         return ActionResult(prepared.action, True, request_id=prepared.request_id, target=prepared.target,
                             status="cancelled", result={"committed": False})
 
@@ -151,6 +205,14 @@ class ProviderSession:
         except KeyError:
             return self._error(request, "rejected", "unsupported_action", "provider does not expose this action")
         retry = action.definition().retry or ("safe" if action.read_only else "idempotency_required" if action._idempotent() else "never")
+        if not action.read_only and not request.actor:
+            return self._error(request,"rejected","unauthenticated","consequential actions require an actor")
+        if request.credential:
+            expired=_time(request.credential.expires_at)
+            if request.credential.revoked or (expired is not None and expired<=_now()) or request.credential.audience!=self.provider.identity.id:
+                return self._error(request,"rejected","unauthenticated","actor credential is invalid for this provider")
+            if request.credential.mode=="proof_of_possession" and (not self.credential_verifier or not self.credential_verifier(request)):
+                return self._error(request,"rejected","unauthenticated","proof-of-possession verification failed")
         if retry == "idempotency_required" and not request.idempotency_key:
             return self._error(request, "rejected", "invalid_request", "idempotency_key is required")
         prepared = self.prepared.get(request.prepared_action_id or "")
@@ -172,6 +234,17 @@ class ProviderSession:
         if not allowed:
             return self._error(request, "denied", "policy_denied", reason)
         resource_key = str(sorted(request.target.items())) or request.action
+        budget=action.definition().constraints.get("budget") or {}
+        maximum=int(budget.get("maximum",0)); window=int(budget.get("window_seconds",0)); actor=request.actor or "anonymous"
+        if maximum and window:
+            cutoff=_now().timestamp()-window
+            if self._database:
+                self._database.execute("DELETE FROM budget_events WHERE occurred < ?",(cutoff,));
+                used=self._database.execute("SELECT COUNT(*) FROM budget_events WHERE actor=? AND action=?",(actor,request.action)).fetchone()[0]
+            else:
+                used=sum(1 for item in self.operations.values() if item.action==request.action and item.target.get("_budget_actor")==actor)
+            if used>=maximum:
+                return self._error(request,"rejected","rate_limited","action budget exhausted",retryable=True,retry_after=window)
         cooldown=int(action.definition().constraints.get("cooldown_seconds",0))
         last=self._last_execution.get((request.action,resource_key))
         if cooldown and last and (_now()-last).total_seconds()<cooldown:
@@ -185,6 +258,19 @@ class ProviderSession:
             self.prepared[prepared.prepared_action_id] = replace(prepared, status="accepted")
         try:
             raw = action.handler(**request.input)
+            if isinstance(raw,OperationAccepted):
+                result=ActionResult(action.name,True,result={"operation_id":raw.operation_id,**(raw.result or {})},
+                    request_id=request.request_id,target=request.target,status="accepted")
+                self.operations[raw.operation_id]=result; self.results[request.request_id]=result
+                self._put("result",request.request_id,result.to_dict())
+                if request.idempotency_key:
+                    self.idempotency[request.idempotency_key]=request.request_id
+                    self._put("idempotency",request.idempotency_key,{"request_id":request.request_id})
+                if maximum and window:
+                    if self._database:
+                        self._database.execute("INSERT INTO budget_events(actor,action,occurred) VALUES(?,?,?)",(actor,request.action,_now().timestamp())); self._database.commit()
+                    else: self.operations[f"budget:{request.request_id}"]=replace(result,target={**result.target,"_budget_actor":actor})
+                return result
             data = self.credentials.redact(raw)
             verified = True
             if action.verify_handler:
@@ -205,6 +291,7 @@ class ProviderSession:
                                   error=None if verified else StructuredError("verification_failed", "postconditions were not verified"),
                                   request_id=request.request_id, target=request.target, status=status, receipt=receipt)
             self.provider.receipts[receipt.receipt_id] = receipt
+            self._put("receipt",receipt.receipt_id,receipt.to_dict())
         except ProviderPolicyDenied as error:
             result = self._error(request, "denied", "policy_denied", str(error),
                                  provider_code=error.provider_code, next_actions=error.next_actions)
@@ -213,11 +300,36 @@ class ProviderSession:
         finally:
             resource_lock.release()
         self.results[request.request_id] = result
+        self._put("result",request.request_id,result.to_dict())
         if result.status in {"completed","partial","verification_failed"}:
             self._last_execution[(request.action,resource_key)]=_now()
         if request.idempotency_key:
             self.idempotency[request.idempotency_key] = request.request_id
+            self._put("idempotency",request.idempotency_key,{"request_id":request.request_id})
+        if maximum and window:
+            if self._database:
+                self._database.execute("INSERT INTO budget_events(actor,action,occurred) VALUES(?,?,?)",(actor,request.action,_now().timestamp())); self._database.commit()
+            else: self.operations[f"budget:{request.request_id}"]=replace(result,target={**result.target,"_budget_actor":actor})
         return result
+
+    def complete_operation(self, operation_id: str, *, result: Any = None, error: StructuredError | None = None,
+                           verified: bool = True) -> ActionResult:
+        current=self.operations.get(operation_id)
+        if not current: raise KeyError(operation_id)
+        status="completed" if error is None and verified else "verification_failed" if error is None else "failed"
+        receipt=None
+        if status in {"completed","verification_failed"}:
+            receipt=ActionReceipt(current.action,self.provider.identity.id,target=current.target,status=status,result=self.credentials.redact(result),
+                request_id=current.request_id,completed_at=_now().isoformat(),verification_status="verified" if verified else "failed")
+            self.provider.receipts[receipt.receipt_id]=receipt; self._put("receipt",receipt.receipt_id,receipt.to_dict())
+        final=ActionResult(current.action,status=="completed",result=result,error=error or (None if verified else StructuredError("verification_failed","postconditions were not verified")),
+            request_id=current.request_id,target=current.target,status=status,receipt=receipt)
+        self.operations[operation_id]=final; self.results[current.request_id or ""]=final
+        if current.request_id: self._put("result",current.request_id,final.to_dict())
+        return final
+
+    def operation_status(self, operation_id: str) -> ActionResult | None:
+        return self.operations.get(operation_id)
 
     def status(self, request_id: str) -> ActionResult | None:
         return self.results.get(request_id)

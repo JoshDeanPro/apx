@@ -11,5 +11,9 @@ confirmed intent, obeys retry/cooldown/rate metadata, does not retry unsafe ambi
 execution, does not treat authentication as authority, accepts Provider denial, and
 does not claim completion without a completed verified result/receipt when required.
 
+Conformance also requires Providers that advertise durable recovery to preserve
+idempotency and status across restart. MCP adapters MUST expose preparation rather than
+collapsing consequential Provider Actions into an unconfirmed tool call.
+
 The reusable Python suite is in `apx.conformance`. The independent TypeScript client
 fixture in `interop/typescript` consumes only JSON messages and the published schemas.

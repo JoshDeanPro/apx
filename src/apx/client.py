@@ -18,6 +18,7 @@ class ClientTransport(Protocol):
     def execute(self, request: ActionRequest) -> ActionResult: ...
     def status(self, request_id: str) -> ActionResult | None: ...
     def receipt(self, receipt_id: str) -> ActionReceipt | None: ...
+    def operation_status(self, operation_id: str) -> ActionResult | None: ...
     def cancel(self, prepared_action_id: str) -> ActionResult: ...
     def reverse(self, receipt_id: str, request: ActionRequest) -> ActionResult: ...
 
@@ -30,6 +31,7 @@ class LocalClientTransport:
     def execute(self, request): return self.session.execute(request)
     def status(self, request_id): return self.session.status(request_id)
     def receipt(self, receipt_id): return self.session.receipt(receipt_id)
+    def operation_status(self, operation_id): return self.session.operation_status(operation_id)
     def cancel(self, prepared_action_id): return self.session.cancel(prepared_action_id)
     def reverse(self, receipt_id, request): return self.session.reverse(receipt_id, request)
 
@@ -74,6 +76,9 @@ class HTTPClientTransport:
         for key in ("side_effects", "postconditions", "partial_effects"):
             if key in raw: raw[key] = tuple(raw[key])
         return ActionReceipt(**raw)
+    def operation_status(self, operation_id):
+        value=self._get("/apx/v0.1/operations/"+quote(operation_id,safe=""))
+        return None if value.get("error") else _result(value)
     def cancel(self, prepared_action_id): return _result(self._post("/apx/v0.1/cancel", {"prepared_action_id": prepared_action_id}))
     def reverse(self, receipt_id, request): return _result(self._post("/apx/v0.1/reverse/" + quote(receipt_id, safe=""), request.to_dict()))
 
@@ -92,6 +97,7 @@ class APXClient:
         return self.transport.execute(ActionRequest(action, target or {}, input or {}, **envelope))
     def status(self, request_id: str): return self.transport.status(request_id)
     def receipt(self, receipt_id: str): return self.transport.receipt(receipt_id)
+    def operation_status(self, operation_id: str): return self.transport.operation_status(operation_id)
     def cancel(self, prepared_action_id: str): return self.transport.cancel(prepared_action_id)
     def reverse(self, receipt_id: str, action: str, *, target=None, input=None, **envelope):
         return self.transport.reverse(receipt_id, ActionRequest(action, target or {}, input or {}, **envelope))
