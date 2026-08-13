@@ -1,5 +1,17 @@
 version = 1
 
+[credentials.discord_webhook]
+kind = "discord"
+source = "environment"
+reference = "LOCALCLOUD_DISCORD_WEBHOOK_URL"
+description = "Optional outbound Discord notification webhook."
+
+# An existing stdio MCP server can be adapted into namespaced AXP actions.
+# [[connections]]
+# id = "existing_tools"
+# adapter = "mcp_stdio"
+# command = ["python3", "/absolute/path/server.py"]
+
 [[hosts]]
 name = "workstation"
 transport = "local"
@@ -31,5 +43,10 @@ deployment = {method = "existing project scripts", preference = "verify after de
 # environment variable and never appears in this file.
 [plugins.discord_webhook]
 enabled = false
-url_env = "LOCALCLOUD_DISCORD_WEBHOOK_URL"
+credential = "discord_webhook"
 events = ["project.deployed", "backup.completed", "service.failed"]
+
+[[relationships]]
+source = "project:example"
+relation = "developed_on"
+target = "host:workstation"

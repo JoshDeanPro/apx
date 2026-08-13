@@ -10,7 +10,7 @@ from .protocol import MCPServer
 
 def diagnose(config: str | Path | None = None) -> dict[str,Any]:
     path=Path(config).expanduser() if config else default_config_path()
-    report={"ok":True,"config":{"path":str(path),"ok":False},"hosts":[],"plugins":[],"mcp":{},"problems":[]}
+    report={"ok":True,"config":{"path":str(path),"ok":False},"hosts":[],"credentials":[],"connections":[],"plugins":[],"mcp":{},"problems":[]}
     try:
         cloud=LocalCloud(path)
         report["config"]["ok"]=True
@@ -27,8 +27,19 @@ def diagnose(config: str | Path | None = None) -> dict[str,Any]:
             item["error"]=str(error); report["ok"]=False; report["problems"].append(f"{host.name}: {error}")
         report["hosts"].append(item)
     report["plugins"]=cloud.plugin_manager.health
+    report["connections"]=cloud.connection_health
+    for connection in report["connections"]:
+        if not connection["ok"]: report["ok"]=False; report["problems"].append(f"connection {connection['id']}: {connection['error']}")
+    report["credentials"]=cloud.credentials.health()
+    for credential in report["credentials"]:
+        if not credential["available"]:
+            report["ok"]=False
+            report["problems"].append(f"credential {credential['id']}: configured but unavailable")
     for plugin in report["plugins"]:
-        if not plugin["ok"]: report["ok"]=False; report["problems"].append(f"plugin {plugin['name']}: {plugin['error']}")
+        if not plugin["ok"]:
+            report["ok"]=False
+            reason=plugin.get("error") or f"missing credential references: {', '.join(plugin.get('missing_credentials',[]))}"
+            report["problems"].append(f"plugin {plugin['name']}: {reason}")
     try:
         tools=MCPServer(cloud).tools(); report["mcp"]={"available":True,"tools":len(tools)}
     except Exception as error:
@@ -36,4 +47,3 @@ def diagnose(config: str | Path | None = None) -> dict[str,Any]:
     if cloud.events.errors:
         report["ok"]=False; report["problems"].extend(f"event listener {e['owner']}: {e['error']}" for e in cloud.events.errors)
     return report
-

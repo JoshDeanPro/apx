@@ -22,6 +22,11 @@ def main(argv: list[str] | None = None) -> int:
     init.add_argument("--non-interactive",action="store_true")
     init.add_argument("--force",action="store_true")
     sub.add_parser("doctor",help="diagnose configuration, hosts, plugins, and MCP")
+    sub.add_parser("plugins",help="list plugin metadata and health")
+    plugin=sub.add_parser("plugin",help="inspect a plugin"); plugin.add_argument("name")
+    sub.add_parser("relationships",help="list resource relationships")
+    create=sub.add_parser("create",help="scaffold an extension"); create.add_argument("kind",choices=["plugin","action","adapter"]); create.add_argument("name"); create.add_argument("--output",default=".")
+    run=sub.add_parser("run",help="run any configured AXP action"); run.add_argument("action"); run.add_argument("--input",default="{}",help="JSON object of action inputs")
     sub.add_parser("hosts",help="list configured hosts")
     inspect=sub.add_parser("inspect",help="discover a host"); inspect.add_argument("host")
     status=sub.add_parser("status",help="read host status"); status.add_argument("host")
@@ -44,7 +49,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.command=="doctor":
         from .doctor import diagnose
         result=diagnose(args.config); output(result); return 0 if result["ok"] else 1
+    if args.command=="create":
+        from .scaffold import create
+        try: output(create(args.kind,args.name,args.output)); return 0
+        except Exception as error: output({"ok":False,"error":str(error)}); return 1
     cloud=LocalCloud(args.config)
+    if args.command=="plugins":
+        output({"plugins":[cloud.plugin_manager.inspect(name) for name in sorted(cloud.plugin_manager.metadata)]}); return 0
+    if args.command=="plugin":
+        try: output(cloud.plugin_manager.inspect(args.name)); return 0
+        except KeyError as error: output({"ok":False,"error":str(error)}); return 1
+    if args.command=="relationships": output({"relationships":[item.to_dict() for item in cloud.relationships()]}); return 0
+    if args.command=="run":
+        try:
+            inputs=json.loads(args.input)
+            if not isinstance(inputs,dict): raise ValueError("--input must be a JSON object")
+            action=cloud.actions.get(args.action)
+            if action.destructive and not args.yes: output({"action":args.action,"ok":False,"error":"destructive action requires --yes"}); return 2
+            result=cloud.run(args.action,**inputs); output(result.to_dict()); return 0 if result.ok else 1
+        except Exception as error: output({"action":args.action,"ok":False,"error":str(error)}); return 1
     if args.command=="mcp": return MCPServer(cloud).serve()
     if args.command=="actions":
         output({"actions":[{"name":a.name,"description":a.description,"read_only":a.read_only,"destructive":a.destructive} for a in cloud.actions.list()]}); return 0

@@ -39,6 +39,29 @@ class Resource:
 
 
 @dataclass(frozen=True)
+class ResourceRelationship:
+    source: str
+    relation: str
+    target: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"resource.relationship",**asdict(self)}
+
+
+@dataclass(frozen=True)
+class Connection:
+    id: str
+    adapter: str
+    resource: str | None = None
+    credential: str | None = None
+    options: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"axp":AXP_VERSION,"type":"connection",**asdict(self)}
+
+
+@dataclass(frozen=True)
 class Capability:
     id: str
     resource: str

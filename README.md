@@ -35,6 +35,13 @@ localcloud hosts
 localcloud inspect HOST
 localcloud init [--host NAME=SSH_TARGET]
 localcloud doctor
+localcloud plugins
+localcloud plugin NAME
+localcloud relationships
+localcloud create plugin NAME
+localcloud create action resource.verb
+localcloud create adapter NAME
+localcloud run resource.verb --input '{"key":"value"}'
 localcloud status HOST
 localcloud services HOST
 localcloud service status HOST SERVICE
@@ -103,6 +110,43 @@ actions emit `action.completed`/`action.failed` plus useful specific events such
 as `service.started`, `file.copied`, and `host.shutdown_requested`. Plugins and
 future interfaces can subscribe or emit without an event broker.
 
+## Credentials and connections
+
+LOCALCLOUD stores references, not secret values:
+
+```toml
+[credentials.provider]
+kind = "provider"
+source = "environment"
+reference = "PROVIDER_API_TOKEN"
+scopes = ["read"]
+```
+
+Values are re-read when an action needs them, so replacing an environment value
+requires no code or configuration change. `doctor` reports configured,
+available, source, and reference status without resolving or printing values.
+Nested sensitive fields and known credential values are redacted at the shared
+AXP result boundary.
+
+`Connection` records say how a Resource is reached. Built-in adapters are
+local, SSH, bounded HTTPS/API, outbound webhook, and MCP stdio. The HTTP adapter
+requires HTTPS except for explicitly allowed localhost use, injects referenced
+credentials only at execution, strips sensitive response headers, redacts
+response data, limits responses to 256 KiB, and bounds timeouts.
+
+An existing MCP server can become namespaced AXP actions:
+
+```toml
+[[connections]]
+id = "existing_tools"
+adapter = "mcp_stdio"
+command = ["python3", "/absolute/path/server.py"]
+```
+
+Its implementation stays in that MCP server. LOCALCLOUD performs initialize,
+discovers tools, and adapts them as actions such as
+`existing_tools.some_tool`. It does not run a federation service.
+
 ## Architecture
 
 ```text
@@ -127,6 +171,9 @@ Python / CLI / MCP
 - `cli.py`: human interface.
 - `protocol.py`: dependency-free MCP JSON-RPC/stdio adapter.
 - `plugins.py`: optional `localcloud.plugins` Python entry-point contract.
+- `credentials.py`: lazy environment references and shared redaction.
+- `adapters/`: local, SSH, HTTPS/API, webhook, and MCP stdio connections.
+- `scaffold.py`: small plugin, action, and adapter generators.
 
 Configured Project records relate development, production, services, domains,
 archives, and context. Discovery remains authoritative for installed host
@@ -161,6 +208,25 @@ The bundled optional `discord_webhook` plugin demonstrates AXP event delivery
 to an external provider without an SDK. Enable it in TOML and place the URL in
 the configured environment variable. The URL is never stored in configuration
 or returned to callers.
+
+Plugins publish inspectable metadata: name, version, description, AXP
+compatibility, resources/actions/events, optional dependencies, and credential
+requirements. Metadata inspection does not invoke plugin actions.
+
+## Relationships and extension scaffolds
+
+`localcloud relationships` returns AXP `ResourceRelationship` records. Project
+locations automatically become relationships such as `developed_on`,
+`runs_on`, and `backed_up_to`; arbitrary relationships may be declared in TOML.
+There is no graph database.
+
+`localcloud create plugin|action|adapter NAME` writes two to four small files.
+The plugin scaffold is an installable entry-point package with metadata, one
+example AXP action, a lazy credential-reference example, and a test. Generated
+actions and adapters similarly contain one implementation and one test.
+Once installed, plugin actions automatically appear in Python and MCP, and are
+available to humans through `localcloud run`. Destructive actions still require
+`--yes`.
 
 ## First run and diagnosis
 

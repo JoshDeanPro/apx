@@ -10,7 +10,7 @@ from localcloud.actions import RegisteredAction
 from localcloud.doctor import diagnose
 from localcloud.events import EventRouter
 from localcloud.integrations.discord_webhook import DiscordWebhookPlugin
-from localcloud.plugins import PluginAPI
+from localcloud.plugins import PluginAPI, PluginManager, PluginMetadata
 from localcloud.setup import initialize
 
 
@@ -56,9 +56,10 @@ class AXPTests(unittest.TestCase):
             self.assertTrue(cloud.run("demo.echo",value="ok").ok)
             self.assertEqual(api.resource_discoverers[0]()[0].kind,"demo")
             cloud.emit(Event("demo.finished","demo")); self.assertEqual(len(seen),1)
-            sent=[]; plugin=DiscordWebhookPlugin("https://example.invalid/webhook",("project.deployed",),lambda url,payload:sent.append((url,payload)))
+            sent=[]; plugin=DiscordWebhookPlugin("discord_webhook",("project.deployed",),lambda url,payload:sent.append((url,payload)))
+            cloud.credentials.references["discord_webhook"]=__import__("localcloud").CredentialReference("discord_webhook","discord","environment","TEST_DISCORD_WEBHOOK")
             plugin.setup(PluginAPI(cloud.actions,cloud.events,cloud,"discord"))
-            cloud.emit(Event("project.deployed","test",{"project":"demo"}))
+            with patch.dict("os.environ",{"TEST_DISCORD_WEBHOOK":"https://example.invalid/webhook"}): cloud.emit(Event("project.deployed","test",{"project":"demo"}))
             self.assertIn("project.deployed",sent[0][1]["content"])
 
     def test_context_is_structured(self):
@@ -85,11 +86,22 @@ class AXPTests(unittest.TestCase):
     def test_doctor_reports_unhealthy_optional_plugin(self):
         with tempfile.TemporaryDirectory() as directory:
             path=config(Path(directory))
-            with path.open("a") as stream: stream.write('\n[plugins.discord_webhook]\nenabled=true\nurl_env="LOCALCLOUD_TEST_MISSING_WEBHOOK"\n')
+            with path.open("a") as stream: stream.write('\n[credentials.discord_webhook]\nsource="environment"\nreference="LOCALCLOUD_TEST_MISSING_WEBHOOK"\n[plugins.discord_webhook]\nenabled=true\ncredential="discord_webhook"\n')
             with patch.dict("os.environ",{},clear=False):
                 report=diagnose(path)
             self.assertFalse(report["ok"])
-            self.assertEqual(report["plugins"][0]["name"],"discord_webhook")
+            self.assertEqual(report["credentials"][0]["id"],"discord_webhook")
+
+    def test_plugin_metadata_reports_missing_credential_reference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cloud=LocalCloud(config(Path(directory)),plugins=False)
+            class NeedsCredential:
+                metadata=PluginMetadata("needs_credential","1.0.0","test",credentials=("provider_token",))
+                def setup(self,api): pass
+            manager=PluginManager(cloud.actions,cloud.events,cloud)
+            manager._setup("needs_credential",NeedsCredential())
+            self.assertFalse(manager.health[0]["ok"])
+            self.assertEqual(manager.health[0]["missing_credentials"],["provider_token"])
 
 
 if __name__ == "__main__": unittest.main()

@@ -15,11 +15,15 @@ def default_config_path() -> Path:
     return next((path for path in candidates if path.exists()), candidates[-1])
 
 
-def load(path: str | Path | None = None) -> tuple[dict[str, Host], dict[str, Project]]:
+def load_document(path: str | Path | None = None) -> tuple[Path, dict]:
     source = Path(path).expanduser() if path else default_config_path()
     if not source.exists():
         raise FileNotFoundError(f"LOCALCLOUD configuration not found: {source}")
-    raw = tomllib.loads(source.read_text(encoding="utf-8"))
+    return source,tomllib.loads(source.read_text(encoding="utf-8"))
+
+
+def load(path: str | Path | None = None) -> tuple[dict[str, Host], dict[str, Project]]:
+    source,raw=load_document(path)
     hosts: dict[str, Host] = {}
     for item in raw.get("hosts", []):
         host = Host(item["name"], item.get("transport", "local"), item.get("target"))
@@ -38,4 +42,3 @@ def load(path: str | Path | None = None) -> tuple[dict[str, Host], dict[str, Pro
         )
         projects[project.name] = project
     return hosts, projects
-

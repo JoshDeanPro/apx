@@ -38,11 +38,30 @@ class PluginAPI:
     def discover_resources(self, discoverer: Callable[[],Iterable[Resource]]) -> None: self.resource_discoverers.append(discoverer)
     def discover_capabilities(self, discoverer: Callable[[str],Iterable[Capability]]) -> None: self.capability_discoverers.append(discoverer)
     def provide_context(self, provider: Callable[[],Iterable[Context]]) -> None: self.context_providers.append(provider)
+    def credential(self, credential_id: str) -> str: return self.cloud.credentials.resolve(credential_id)
 
 
 class Plugin(Protocol):
     name: str
     def setup(self, api: PluginAPI) -> None: ...
+
+
+@dataclass(frozen=True)
+class PluginMetadata:
+    name: str
+    version: str
+    description: str
+    axp: str = "0.1"
+    resources: tuple[str,...] = ()
+    actions: tuple[str,...] = ()
+    events_emitted: tuple[str,...] = ()
+    events_listened: tuple[str,...] = ()
+    optional_dependencies: tuple[str,...] = ()
+    credentials: tuple[str,...] = ()
+
+    def to_dict(self):
+        from dataclasses import asdict
+        return asdict(self)
 
 
 class PluginManager:
@@ -51,10 +70,16 @@ class PluginManager:
         self.health: list[dict[str,Any]]=[]
         self.resources: list[Resource]=[]; self.capabilities: list[Capability]=[]; self.contexts: list[Context]=[]
         self.resource_discoverers=[]; self.capability_discoverers=[]; self.context_providers=[]
+        self.metadata: dict[str,PluginMetadata]={}
 
     def _setup(self, name: str, plugin: Any) -> None:
         api=PluginAPI(self.actions,self.events,self.cloud,name)
         try:
+            metadata=getattr(plugin,"metadata",None)
+            if metadata is None: metadata=PluginMetadata(name,getattr(plugin,"version","unknown"),getattr(plugin,"description",name))
+            if isinstance(metadata,dict): metadata=PluginMetadata(**metadata)
+            if metadata.axp!="0.1": raise ValueError(f"plugin requires unsupported AXP {metadata.axp}")
+            self.metadata[name]=metadata
             if hasattr(plugin,"setup"): plugin.setup(api)
             elif hasattr(plugin,"register"): plugin.register(self.actions)
             else: raise TypeError("plugin must implement setup(api)")
@@ -62,7 +87,15 @@ class PluginManager:
             self.resource_discoverers.extend((name,fn) for fn in api.resource_discoverers)
             self.capability_discoverers.extend((name,fn) for fn in api.capability_discoverers)
             self.context_providers.extend((name,fn) for fn in api.context_providers)
-            self.health.append({"name":name,"ok":True})
+            missing_credentials = [
+                credential_id
+                for credential_id in metadata.credentials
+                if credential_id not in self.cloud.credentials.references
+            ]
+            health = {"name": name, "ok": not missing_credentials}
+            if missing_credentials:
+                health["missing_credentials"] = missing_credentials
+            self.health.append(health)
         except Exception as error:
             self.health.append({"name":name,"ok":False,"error":str(error)})
 
@@ -91,3 +124,7 @@ class PluginManager:
     def discover_resources(self): return self._collect(self.resource_discoverers)
     def discover_capabilities(self, host: str): return self._collect(self.capability_discoverers,host)
     def provide_contexts(self): return self._collect(self.context_providers)
+    def inspect(self, name: str):
+        if name not in self.metadata: raise KeyError(f"plugin {name!r} is not loaded")
+        health=next((item for item in reversed(self.health) if item["name"]==name),{"name":name,"ok":True})
+        return {"metadata":self.metadata[name].to_dict(),"health":health}
