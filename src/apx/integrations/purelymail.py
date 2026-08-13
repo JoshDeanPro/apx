@@ -22,7 +22,7 @@ class Plugin(HTTPProviderPlugin):
     @property
     def metadata(self):
         metadata=super().metadata
-        return replace(metadata,actions=metadata.actions+("purelymail.status","purelymail.domain.list","purelymail.mailbox.list"))
+        return replace(metadata,actions=metadata.actions+("purelymail.status","purelymail.domain.list","purelymail.mailbox.list","purelymail.mailbox.create"))
 
     def _call(self, endpoint: str, body: dict | None = None):
         response=self.http.request("POST",f"{self.base_url}/{endpoint}",headers=self.headers(),body=body or {})
@@ -44,3 +44,20 @@ class Plugin(HTTPProviderPlugin):
 
         def mailbox_list(): return self._call("listUsers")
         api.register_action(RegisteredAction("purelymail.mailbox.list","List mailboxes on this Purelymail account",mailbox_list,empty_schema))
+
+        def mailbox_create(email: str, password: str, recovery_email: str | None = None) -> dict:
+            """The password is a genuine secret the caller must supply -- it is
+            never read back: no action returns a mailbox password, and it never
+            appears in the ActionResult or a log line."""
+            if not password or len(password) < 12: raise ValueError("password must be at least 12 characters")
+            if "@" not in email: raise ValueError(f"invalid mailbox address {email!r}")
+            local,domain=email.split("@",1)
+            body={"userName":local,"domainName":domain,"password":password,"enablePasswordReset":bool(recovery_email)}
+            if recovery_email: body["recoveryEmail"]=recovery_email
+            self._call("createUser",body)
+            return {"created":True,"mailbox":email,"note":"password was not stored or echoed"}
+        api.register_action(RegisteredAction(
+            "purelymail.mailbox.create","Create a Purelymail mailbox",mailbox_create,
+            {"type":"object","properties":{"email":{"type":"string"},"password":{"type":"string"},"recovery_email":{"type":"string"}},"required":["email","password"],"additionalProperties":False},
+            read_only=False,destructive=True,
+        ))

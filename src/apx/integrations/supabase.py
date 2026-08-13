@@ -25,7 +25,8 @@ class Plugin(HTTPProviderPlugin):
         return {"provider":self.name,"project_ref":project_ref,"data":response.body}
 
     def _auth_update(self, project_ref: str, settings: dict[str,Any]) -> dict[str,Any]:
-        allowed={"site_url","uri_allow_list","oauth_server_enabled","oauth_server_authorization_path","oauth_server_allow_dynamic_registration","passkey_enabled","webauthn_rp_display_name","webauthn_rp_id","webauthn_rp_origins"}
+        allowed={"site_url","uri_allow_list","oauth_server_enabled","oauth_server_authorization_path","oauth_server_allow_dynamic_registration","passkey_enabled","webauthn_rp_display_name","webauthn_rp_id","webauthn_rp_origins",
+                 "smtp_host","smtp_port","smtp_user","smtp_pass","smtp_sender_name","smtp_admin_email","smtp_max_frequency","rate_limit_email_sent","mailer_autoconfirm"}
         unknown=set(settings)-allowed
         if unknown: raise ValueError(f"unsupported Supabase Auth settings: {sorted(unknown)}")
         self.http.request("PATCH",self._auth_url(project_ref),headers=self.headers(),body=settings,timeout=int(self.config.get("timeout",20)))
