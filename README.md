@@ -1,13 +1,14 @@
 # APX
 
-APX lets you use your computers and services together. It discovers what
-already exists, reaches hosts locally or through SSH, and exposes one small set
-of actions to Python, humans at a CLI, and AI agents through MCP.
+APX is an action protocol for humans, agents, applications, businesses, and
+machines. It lets a client discover supported user intentions, prepare their
+real consequences, obtain narrowly scoped authority, execute once, verify the
+outcome, and receive a structured receipt.
 
-APX is the reference implementation of **AXP — Action Exchange
-Protocol**, a tiny operational language for Resources, Capabilities, Actions,
-Events, and Context. MCP, SSH, and the CLI are adapters around AXP rather than
-the foundation.
+APX Protocol 0.1 has four roles: Client, Provider, Node (a machine Provider),
+and optional Authority. Clients express intent. Providers establish truth about
+their Resources and always retain their business rules. OpenPower, MCP, HTTP,
+local calls, and SSH Nodes use the same Action semantics.
 
 It is a package, not a control-plane server. The base runtime is Python's
 standard library. It does not install or require Docker, a database, an HTTP
@@ -145,22 +146,25 @@ The MCP adapter exposes the shared actions using underscore names such as
 `host_info`, `service_status`, `service_restart`, `logs_read`, `file_copy`, and
 `project_inspect`. It contains no separate host or service implementation.
 
-## AXP 0.1
+## APX Protocol 0.1
 
 Every execution becomes a typed, serializable request and result:
 
 ```json
-{"axp":"0.1","type":"action.request","action":"service.status","target":{"host":"server"},"input":{"host":"server","service":"caddy"}}
+{"apx":"0.1","type":"action.request","protocol_version":"0.1","action":"service.status","request_id":"...","target":{"host":"server"},"input":{"host":"server","service":"caddy"}}
 ```
 
 ```json
-{"axp":"0.1","type":"action.result","action":"service.status","ok":true,"result":{"service":"caddy"}}
+{"apx":"0.1","type":"action.result","action":"service.status","status":"completed","ok":true,"result":{"service":"caddy"}}
 ```
 
-`apx.axp` defines Resource, Capability, VersionInfo, ActionDefinition,
+The normative [APX Protocol 0.1 specification](spec/protocol.md),
+[HTTP mapping](spec/http.md), [conformance contract](spec/conformance.md), and
+[JSON Schemas](spec/schemas) are implementation-independent. `apx.axp` defines Resource, Capability, VersionInfo, ActionDefinition,
 ActionRequest, ActionResult, Event, Context, and StructuredError. Resources may
 carry arbitrary groups and tags. These are plain dataclasses;
-AXP 0.1 adds no networking, negotiation, authentication, or storage system.
+The legacy `axp` JSON version key remains temporarily emitted for pre-0.1 Python
+compatibility; new implementations use `apx`.
 
 The in-process `EventRouter` supports exact or wildcard subscriptions. Core
 actions emit `action.completed`/`action.failed` plus useful specific events such

@@ -40,7 +40,7 @@ class ProviderManifest:
     resources: tuple[Resource, ...] = ()
     authentication: tuple[dict[str, Any], ...] = ()
     confirmation_methods: tuple[str, ...] = ()
-    capabilities: tuple[str, ...] = ("discover", "prepare", "execute", "receipts")
+    capabilities: tuple[str, ...] = ("discover", "prepare", "authorize", "execute", "status", "verify", "receipts", "cancel", "reverse")
     transports: tuple[dict[str, Any], ...] = ()
     apx_version: str = AXP_VERSION
     manifest_version: str = TRANSPORT_VERSION
@@ -70,13 +70,13 @@ class ProviderManifest:
         provider=ProviderIdentity(**value["provider"])
         actions=[]
         for raw in value.get("actions",[]):
-            clean={k:v for k,v in raw.items() if k not in {"axp","type"}}
-            for key in ("side_effects","required_permissions","tags","credential_requirements","actor_requirements"):
+            clean={k:v for k,v in raw.items() if k not in {"apx","axp","type"}}
+            for key in ("side_effects","required_permissions","tags","credential_requirements","actor_requirements","preconditions","postconditions"):
                 if key in clean: clean[key]=tuple(clean[key])
             actions.append(ActionDefinition(**clean))
         resources=[]
         for raw in value.get("resources",[]):
-            clean={k:v for k,v in raw.items() if k not in {"axp","type"}}
+            clean={k:v for k,v in raw.items() if k not in {"apx","axp","type"}}
             for key in ("capabilities","groups","tags"):
                 if key in clean: clean[key]=tuple(clean[key])
             resources.append(Resource(**clean))
@@ -110,7 +110,10 @@ class ActionProvider:
                remediation_action: str | None = None, idempotent: bool | None = None,
                side_effects: tuple[str,...] = (), tags: tuple[str,...] = (),
                credentials: tuple[str,...] = (), actor_requirements: tuple[str,...] = (),
-               expected_verification: str | None = None, version: str = "1.0"):
+               expected_verification: str | None = None, version: str = "1.0",
+               retry: str | None = None, preconditions: tuple[dict[str,Any],...] = (),
+               postconditions: tuple[dict[str,Any],...] = (), constraints: dict[str,Any] | None = None,
+               reversal_window: int | None = None):
         if risk not in ACTION_RISKS: raise ValueError(f"invalid risk {risk!r}")
         if confirmation not in CONFIRMATION_LEVELS: raise ValueError(f"invalid confirmation {confirmation!r}")
         def decorate(handler: Callable[...,Any]):
@@ -119,7 +122,9 @@ class ActionProvider:
                 input_schema or {"type":"object","properties":{},"additionalProperties":False},risk=="read",
                 risk in {"destructive","security_critical"},output_schema,risk,confirmation,reversible,reverse_action,
                 idempotent,permissions,self.identity.id,self.identity.provenance,tags,version,False,resource_type,
-                side_effects,credentials,actor_requirements,expected_verification,remediation_action)
+                side_effects,credentials,actor_requirements,expected_verification,remediation_action,
+                retry=retry,preconditions=preconditions,postconditions=postconditions,
+                constraints=constraints or {},reversal_window=reversal_window)
             self._actions[action_id]=ProviderAction(registered)
             return handler
         return decorate
@@ -143,7 +148,7 @@ class ActionProvider:
 
     def manifest(self, *, base_url: str | None = None) -> ProviderManifest:
         url=base_url or self.identity.url
-        transports=({"type":"http","version":TRANSPORT_VERSION,"base_url":url},) if url else ({"type":"local","version":TRANSPORT_VERSION},)
+        transports=({"type":"http","version":TRANSPORT_VERSION,"base_url":url,"protocol_endpoint":"/apx/v0.1"},) if url else ({"type":"local","version":TRANSPORT_VERSION},)
         confirmations=tuple(sorted({a.confirmation for a in self.actions}))
         return ProviderManifest(self.identity,tuple(a.definition() for a in self.actions),tuple(self.resources),
             self.authentication,confirmations,transports=transports,profiles=self.profiles,metadata=self.metadata)
@@ -218,12 +223,23 @@ class RemoteProvider:
 
 class HTTPProviderAdapter:
     """Framework-neutral handler usable from WSGI, ASGI, FastAPI, Flask, or tests."""
-    def __init__(self, provider: ActionProvider, executor: Callable[[ActionRequest],ActionResult], preparer: Callable[...,PreparedAction]):
+    def __init__(self, provider: ActionProvider, executor: Callable[[ActionRequest],ActionResult] | None = None,
+                 preparer: Callable[...,PreparedAction] | None = None, *, session=None):
         self.provider=provider; self.executor=executor; self.preparer=preparer
+        if session is None and (executor is None or preparer is None):
+            from .runtime import ProviderSession
+            session=ProviderSession(provider)
+        self.session=session
 
     def handle(self, method: str, path: str, body: dict[str,Any] | None = None) -> tuple[int,dict[str,str],dict[str,Any]]:
         headers={"Content-Type":"application/apx+json","Cache-Control":"no-store"}
         if method=="GET" and path==DISCOVERY_PATH: return 200,headers,self.provider.manifest().to_dict()
+        if method=="GET" and path.startswith("/apx/v0.1/status/"):
+            result=self.session.status(path.rsplit("/",1)[-1]) if self.session else None
+            return (200,headers,result.to_dict()) if result else (404,headers,{"error":{"code":"invalid_request","message":"request not found"}})
+        if method=="GET" and path.startswith("/apx/v0.1/receipts/"):
+            receipt=self.session.receipt(path.rsplit("/",1)[-1]) if self.session else self.provider.get_receipt(path.rsplit("/",1)[-1])
+            return (200,headers,receipt.to_dict()) if receipt else (404,headers,{"error":{"code":"invalid_request","message":"receipt not found"}})
         if method=="GET" and path.startswith("/apx/receipts/"):
             receipt=self.provider.get_receipt(path.rsplit("/",1)[-1])
             return (200,headers,receipt.to_dict()) if receipt else (404,headers,{"error":{"code":"receipt.not_found"}})
@@ -237,4 +253,18 @@ class HTTPProviderAdapter:
             if result.receipt: self.provider.receipts[result.receipt.receipt_id]=result.receipt
             status=200 if result.ok else (401 if result.status=="authorization_required" else 403 if result.error and result.error.code=="permission_denied" else 400)
             return status,headers,result.to_dict()
+        if method=="POST" and path in {"/apx/v0.1/prepare","/apx/v0.1/execute"} and self.session:
+            try: request=ActionRequest.from_dict(body or {})
+            except (TypeError,ValueError,KeyError) as error: return 400,headers,{"error":{"code":"invalid_request","message":str(error)}}
+            value=self.session.prepare(request) if path.endswith("prepare") else self.session.execute(request)
+            return 200,headers,value.to_dict()
+        if method=="POST" and path=="/apx/v0.1/authorize" and self.session:
+            result=self.session.authorize((body or {}).get("prepared_action_id",""),(body or {}).get("confirmation",{}))
+            return 200,headers,result.to_dict()
+        if method=="POST" and path=="/apx/v0.1/cancel" and self.session:
+            return 200,headers,self.session.cancel((body or {}).get("prepared_action_id","")).to_dict()
+        if method=="POST" and path.startswith("/apx/v0.1/reverse/") and self.session:
+            try: request=ActionRequest.from_dict(body or {})
+            except (TypeError,ValueError,KeyError) as error: return 400,headers,{"error":{"code":"invalid_request","message":str(error)}}
+            return 200,headers,self.session.reverse(path.rsplit("/",1)[-1],request).to_dict()
         return 404,headers,{"error":{"code":"not_found"}}

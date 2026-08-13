@@ -25,7 +25,20 @@ ACTION_RISKS = ("read","low_change","account_change","destructive","financial","
 CONFIRMATION_LEVELS = ("none","delegated","confirm","step_up","transaction","security_critical")
 
 # Action lifecycle states -- an ActionResult.status, not a second boolean bolted onto `ok`.
-ACTION_STATUSES = ("prepared","authorization_required","pending","running","completed","failed","cancelled","reversed")
+ACTION_STATUSES = (
+    "requested", "prepared", "authorization_required", "authorized", "accepted",
+    "executing", "pending", "running", "completed", "denied", "rejected",
+    "cancelled", "expired", "failed", "partial", "verification_failed", "reversed",
+)
+
+RETRY_POLICIES = ("safe", "idempotency_required", "manual", "never")
+STANDARD_ERROR_CODES = (
+    "invalid_request", "unsupported_action", "unauthenticated", "permission_denied",
+    "confirmation_required", "policy_denied", "precondition_failed", "state_conflict",
+    "rate_limited", "cooldown_active", "resource_locked", "provider_unavailable",
+    "expired", "cancelled", "execution_failed", "partial_failure",
+    "verification_failed", "protocol_version_unsupported", "ambiguous_execution",
+)
 
 # Where an Action's implementation actually comes from -- lets a client tell "Discord's own
 # native APX action" apart from "an AI clicking through a webpage" without APX Core knowing
@@ -49,11 +62,17 @@ class StructuredError:
     message: str
     details: dict[str, Any] = field(default_factory=dict)
     retryable: bool = False
+    provider_code: str | None = None
+    retry_after: int | None = None
+    next_actions: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]: return asdict(self)
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "StructuredError": return cls(**value)
+    def from_dict(cls, value: dict[str, Any]) -> "StructuredError":
+        clean=dict(value)
+        if "next_actions" in clean: clean["next_actions"]=tuple(clean["next_actions"])
+        return cls(**clean)
 
 
 @dataclass(frozen=True)
@@ -68,7 +87,7 @@ class Resource:
     version: "VersionInfo | None" = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"resource",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"resource",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -91,7 +110,7 @@ class VersionInfo:
             raise ValueError(f"invalid compatibility state {self.compatibility!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"version.info",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"version.info",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -102,7 +121,7 @@ class ResourceRelationship:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"resource.relationship",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"resource.relationship",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -114,7 +133,7 @@ class Connection:
     options: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"connection",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"connection",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -126,7 +145,7 @@ class Capability:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"capability",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"capability",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -140,11 +159,11 @@ class Actor:
             raise ValueError(f"invalid actor kind {self.kind!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"actor",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"actor",**asdict(self)}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "Actor":
-        if value.get("axp") != AXP_VERSION or value.get("type") != "actor":
+        if value.get("apx",value.get("axp")) != AXP_VERSION or value.get("type") != "actor":
             raise ValueError("not an AXP 0.1 actor")
         return cls(id=value["id"],kind=value["kind"],display_name=value.get("display_name"))
 
@@ -170,7 +189,7 @@ class AuthContext:
     session_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"auth.context",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"auth.context",**asdict(self)}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "AuthContext":
@@ -187,7 +206,7 @@ class PolicyDecision:
     scope: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"policy.decision",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"policy.decision",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -218,14 +237,21 @@ class ActionDefinition:
     remediation_action: str | None = None
     deprecation_message: str | None = None
     extensions: dict[str, Any] = field(default_factory=dict)
+    retry: str | None = None
+    preconditions: tuple[dict[str, Any], ...] = ()
+    postconditions: tuple[dict[str, Any], ...] = ()
+    constraints: dict[str, Any] = field(default_factory=dict)
+    reversal_window: int | None = None
 
     def __post_init__(self) -> None:
         if self.risk not in ACTION_RISKS: raise ValueError(f"invalid risk {self.risk!r}; expected one of {ACTION_RISKS}")
         if self.confirmation not in CONFIRMATION_LEVELS: raise ValueError(f"invalid confirmation {self.confirmation!r}; expected one of {CONFIRMATION_LEVELS}")
         if self.provenance not in PROVENANCE_KINDS: raise ValueError(f"invalid provenance {self.provenance!r}; expected one of {PROVENANCE_KINDS}")
+        policy = self.retry or ("safe" if self.read_only else "idempotency_required" if self.idempotent else "never")
+        if policy not in RETRY_POLICIES: raise ValueError(f"invalid retry policy {policy!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"action.definition",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"action.definition",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -248,15 +274,19 @@ class ActionRequest:
     expires_at: str | None = None
     nonce: str | None = None
     credential: "CredentialHandle | None" = None
+    prepared_action_id: str | None = None
+    idempotency_key: str | None = None
+    authoritative_state_version: str | None = None
+    protocol_version: str = AXP_VERSION
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"action.request",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"action.request",**asdict(self)}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ActionRequest":
-        if value.get("axp") != AXP_VERSION or value.get("type") != "action.request":
+        if value.get("apx",value.get("axp")) != AXP_VERSION or value.get("type") != "action.request":
             raise ValueError("not an AXP 0.1 action.request")
-        known=("action","target","input","request_id","created_at","actor","source","correlation_id","auth_context","delegated_by","client","device","mission","confirmation","expires_at","nonce")
+        known=("action","target","input","request_id","created_at","actor","source","correlation_id","auth_context","delegated_by","client","device","mission","confirmation","expires_at","nonce","prepared_action_id","idempotency_key","authoritative_state_version","protocol_version")
         values={key:value[key] for key in known if key in value}
         if value.get("credential"): values["credential"]=CredentialHandle.from_dict(value["credential"])
         return cls(**values)
@@ -282,12 +312,19 @@ class ActionReceipt:
     side_effects: tuple[str, ...] = ()
     reversal: dict[str, Any] | None = None
     timestamp: str = field(default_factory=_now)
+    delegated_by: str | None = None
+    prepared_action_id: str | None = None
+    committed_at: str | None = None
+    completed_at: str | None = None
+    verified_state: dict[str, Any] | None = None
+    postconditions: tuple[dict[str, Any], ...] = ()
+    partial_effects: tuple[dict[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if self.status not in ACTION_STATUSES: raise ValueError(f"invalid receipt status {self.status!r}; expected one of {ACTION_STATUSES}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"action.receipt",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"action.receipt",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -311,16 +348,16 @@ class ActionResult:
     def host(self) -> str | None: return self.target.get("host")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"action.result","action":self.action,"request_id":self.request_id,"target":self.target,"ok":self.ok,"status":self.status,"result":self.result,"error":self.error.to_dict() if self.error else None,"receipt":self.receipt.to_dict() if self.receipt else None,"data":self.result,"host":self.host}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"action.result","action":self.action,"request_id":self.request_id,"target":self.target,"ok":self.ok,"status":self.status,"result":self.result,"error":self.error.to_dict() if self.error else None,"receipt":self.receipt.to_dict() if self.receipt else None,"data":self.result,"host":self.host}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ActionResult":
-        if value.get("axp") != AXP_VERSION or value.get("type") != "action.result":
+        if value.get("apx",value.get("axp")) != AXP_VERSION or value.get("type") != "action.result":
             raise ValueError("not an AXP 0.1 action.result")
         error=StructuredError.from_dict(value["error"]) if value.get("error") else None
         receipt=None
         if value.get("receipt"):
-            raw={k:v for k,v in value["receipt"].items() if k not in {"axp","type"}}
+            raw={k:v for k,v in value["receipt"].items() if k not in {"apx","axp","type"}}
             if "side_effects" in raw: raw["side_effects"]=tuple(raw["side_effects"])
             receipt=ActionReceipt(**raw)
         return cls(action=value["action"],ok=value["ok"],result=value.get("result"),error=error,request_id=value.get("request_id"),target=value.get("target",{}),status=value.get("status","completed"),receipt=receipt)
@@ -346,13 +383,20 @@ class PreparedAction:
     recurring_terms: dict[str, Any] | None = None
     authorization: dict[str, Any] | None = None
     confirmation_terms: dict[str, Any] | None = None
+    prepared_action_id: str = field(default_factory=lambda: "pa_" + uuid4().hex)
+    created_at: str = field(default_factory=_now)
+    authoritative_state_version: str | None = None
+    authoritative_state: dict[str, Any] | None = None
+    preconditions: tuple[dict[str, Any], ...] = ()
+    resolved_terms: dict[str, Any] = field(default_factory=dict)
+    status: str = "prepared"
 
     def __post_init__(self) -> None:
         if self.confirmation_required not in CONFIRMATION_LEVELS:
             raise ValueError(f"invalid confirmation_required {self.confirmation_required!r}; expected one of {CONFIRMATION_LEVELS}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"action.prepared",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"action.prepared",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -373,7 +417,7 @@ class ActorDescriptor:
         if self.kind not in ACTOR_KINDS: raise ValueError(f"invalid actor kind {self.kind!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"actor.descriptor",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"actor.descriptor",**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -397,7 +441,7 @@ class CredentialHandle:
             raise ValueError(f"invalid credential mode {self.mode!r}")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"credential.handle",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"credential.handle",**asdict(self)}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "CredentialHandle":
@@ -414,7 +458,7 @@ class SecretInput:
     delivery: str = "provider_secure_input"
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"secret.input","reference":self.reference,"purpose":self.purpose,"delivery":self.delivery}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"secret.input","reference":self.reference,"purpose":self.purpose,"delivery":self.delivery}
 
 
 @dataclass(frozen=True)
@@ -428,11 +472,11 @@ class Event:
     correlation_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"event",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"event",**asdict(self)}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "Event":
-        if value.get("axp") != AXP_VERSION or value.get("type") != "event": raise ValueError("not an AXP 0.1 event")
+        if value.get("apx",value.get("axp")) != AXP_VERSION or value.get("type") != "event": raise ValueError("not an APX 0.1 event")
         return cls(**{key:value[key] for key in ("name","source","subject","data","event_id","occurred_at","correlation_id") if key in value})
 
 
@@ -450,7 +494,7 @@ class Context:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"axp":AXP_VERSION,"type":"context",**asdict(self)}
+        return {"apx":AXP_VERSION,"axp":AXP_VERSION,"type":"context",**asdict(self)}
 
     @classmethod
     def from_mapping(cls, id: str, scope: str, value: dict[str, Any]) -> "Context":

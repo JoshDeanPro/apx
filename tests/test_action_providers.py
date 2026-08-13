@@ -271,7 +271,7 @@ class SecurityTests(unittest.TestCase):
         descriptor = self.cloud.provider_actor(request)
         payload = descriptor.to_dict()
         self.assertEqual(payload["id"], "agent:reader")
-        self.assertEqual(set(payload) - {"axp", "type"}, {"kind", "id", "owner", "client", "device", "roles", "delegated_by", "permissions"})
+        self.assertEqual(set(payload) - {"apx", "axp", "type"}, {"kind", "id", "owner", "client", "device", "roles", "delegated_by", "permissions"})
 
 
 class ManifestSecurityTests(unittest.TestCase):
