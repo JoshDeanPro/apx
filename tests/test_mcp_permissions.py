@@ -2,12 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from localcloud import LocalCloud
-from localcloud.protocol import MCPServer
+from apx import APX
+from apx.protocol import MCPServer
 
 
 def config(tmp_path: Path, extra: str = "") -> Path:
-    path=tmp_path/"localcloud.toml"
+    path=tmp_path/"apx.toml"
     path.write_text('version=1\n[[hosts]]\nname="mac"\ntransport="local"\n[[hosts]]\nname="vps"\ntransport="local"\n[[projects]]\nname="palisbot"\n'+extra)
     return path
 
@@ -36,7 +36,7 @@ scope={project=["palisbot"]}
 class MCPPermissionTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name),ROLES),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name),ROLES),plugins=False)
 
     def tearDown(self): self.temp.cleanup()
 
@@ -64,7 +64,7 @@ class MCPPermissionTests(unittest.TestCase):
         self.assertNotEqual(response["result"]["structuredContent"].get("error",{}).get("code"),"permission_denied")
 
     def test_unconfigured_actor_defaults_to_open_listing_when_policy_disabled(self):
-        open_cloud=LocalCloud(config(Path(self.temp.name),""),plugins=False)
+        open_cloud=APX(config(Path(self.temp.name),""),plugins=False)
         tools={t["name"] for t in MCPServer(open_cloud).tools()}
         self.assertIn("service_restart",tools)
 

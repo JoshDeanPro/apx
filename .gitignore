@@ -6,7 +6,7 @@ dist/
 build/
 *.egg-info/
 .DS_Store
-.localcloud/
-localcloud.toml
+.apx/
+apx.toml
 *.groups.json
-!localcloud.example.toml
+!apx.example.toml

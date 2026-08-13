@@ -9,17 +9,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from localcloud import LocalCloud
-from localcloud.auth import AuthenticationError, AuthManager, LocalAuthProvider, Principal
-from localcloud.auth_openpower import OpenPowerAuthProvider, verify_jwt_hs256
-from localcloud.axp import Actor, AuthContext
-from localcloud.cli import main as cli_main
-from localcloud.identity import ActorRegistry
-from localcloud.protocol import MCPServer
+from apx import APX
+from apx.auth import AuthenticationError, AuthManager, LocalAuthProvider, Principal
+from apx.auth_openpower import OpenPowerAuthProvider, verify_jwt_hs256
+from apx.axp import Actor, AuthContext
+from apx.cli import main as cli_main
+from apx.identity import ActorRegistry
+from apx.protocol import MCPServer
 
 
 def config(tmp_path: Path, extra: str = "") -> Path:
-    path=tmp_path/"localcloud.toml"
+    path=tmp_path/"apx.toml"
     path.write_text('version=1\n[[hosts]]\nname="test"\ntransport="local"\n[[projects]]\nname="demo"\n'+extra)
     return path
 
@@ -129,37 +129,37 @@ class JWTVerifierTests(unittest.TestCase):
 
 class OpenPowerProviderTests(unittest.TestCase):
     def setUp(self):
-        os.environ["LOCALCLOUD_TEST_OP_SECRET"]="test-shared-secret"
+        os.environ["APX_TEST_OP_SECRET"]="test-shared-secret"
         self.now=int(time.time())
         self.token=make_token({"sub":"agent:claude:mac","principal_type":"agent","iss":"openpower.one","aud":"axp","exp":self.now+3600},"test-shared-secret")
 
     def test_live_authentication(self):
-        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","LOCALCLOUD_TEST_OP_SECRET",request=lambda m,p:{"revoked":False})
+        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","APX_TEST_OP_SECRET",request=lambda m,p:{"revoked":False})
         context=provider.authenticate({"token":self.token})
         self.assertEqual(context.authentication_method,"openpower"); self.assertEqual(context.principal_id,"agent:claude:mac")
 
     def test_revoked_rejected(self):
-        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","LOCALCLOUD_TEST_OP_SECRET",request=lambda m,p:{"revoked":True})
+        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","APX_TEST_OP_SECRET",request=lambda m,p:{"revoked":True})
         with self.assertRaises(AuthenticationError): provider.authenticate({"token":self.token})
 
     def test_offline_without_cache_marked_distinctly(self):
-        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","LOCALCLOUD_TEST_OP_SECRET",request=lambda m,p:(_ for _ in ()).throw(OSError("unreachable")))
+        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","APX_TEST_OP_SECRET",request=lambda m,p:(_ for _ in ()).throw(OSError("unreachable")))
         context=provider.authenticate({"token":self.token})
         self.assertEqual(context.authentication_method,"openpower_offline")
 
     def test_offline_with_cache_marked_distinctly_never_claims_fresh_validation(self):
-        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","LOCALCLOUD_TEST_OP_SECRET",request=lambda m,p:{"revoked":False})
+        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","APX_TEST_OP_SECRET",request=lambda m,p:{"revoked":False})
         provider.authenticate({"token":self.token})  # populate cache
         provider._request=lambda m,p:(_ for _ in ()).throw(OSError("unreachable"))
         context=provider.authenticate({"token":self.token})
         self.assertEqual(context.authentication_method,"cached_openpower")
 
     def test_offline_disabled_raises_instead_of_silently_degrading(self):
-        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","LOCALCLOUD_TEST_OP_SECRET",request=lambda m,p:(_ for _ in ()).throw(OSError("unreachable")),allow_offline=False)
+        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","APX_TEST_OP_SECRET",request=lambda m,p:(_ for _ in ()).throw(OSError("unreachable")),allow_offline=False)
         with self.assertRaises(AuthenticationError): provider.authenticate({"token":self.token})
 
     def test_missing_shared_secret_env_raises(self):
-        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","LOCALCLOUD_MISSING_SECRET_VAR")
+        provider=OpenPowerAuthProvider("https://openpower.one/api/v1","APX_MISSING_SECRET_VAR")
         with self.assertRaises(AuthenticationError): provider.authenticate({"token":self.token})
 
 
@@ -167,7 +167,7 @@ OPENPOWER_CONFIG = '''
 [auth.openpower]
 enabled=true
 endpoint="https://openpower.one/api/v1"
-shared_secret_env="LOCALCLOUD_TEST_OP_SECRET"
+shared_secret_env="APX_TEST_OP_SECRET"
 '''
 
 ROLE_CONFIG = '''
@@ -189,8 +189,8 @@ class AuthenticationVsAuthorizationTests(unittest.TestCase):
 
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        os.environ["LOCALCLOUD_TEST_OP_SECRET"]="test-shared-secret"
-        self.cloud=LocalCloud(config(Path(self.temp.name),OPENPOWER_CONFIG+ROLE_CONFIG),plugins=False)
+        os.environ["APX_TEST_OP_SECRET"]="test-shared-secret"
+        self.cloud=APX(config(Path(self.temp.name),OPENPOWER_CONFIG+ROLE_CONFIG),plugins=False)
         self.cloud.auth.providers["openpower"]._request=lambda m,p:{"revoked":False}
         now=int(time.time())
         self.token=make_token({"sub":"agent:claude:mac","principal_type":"agent","iss":"openpower.one","aud":"axp","exp":now+3600},"test-shared-secret")
@@ -229,7 +229,7 @@ class AuthenticationVsAuthorizationTests(unittest.TestCase):
 class MCPIdentityTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
 
     def tearDown(self): self.temp.cleanup()
 
@@ -266,7 +266,7 @@ class CLIParityTests(unittest.TestCase):
         path=config(subdir,'[[actors]]\nid="agent:claude:mac"\nroles=[]\n')
         code=cli_main(["--config",str(path),"identity","link","agent:claude:mac","--openpower-subject","agent:op-uuid-1"])
         self.assertEqual(code,0)
-        cloud=LocalCloud(path,plugins=False)
+        cloud=APX(path,plugins=False)
         self.assertEqual(cloud.actors.get("agent:claude:mac").openpower_identity,"agent:op-uuid-1")
 
     def test_identity_link_rejects_unknown_identity(self):

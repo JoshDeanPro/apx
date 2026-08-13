@@ -2,12 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from localcloud import LocalCloud
-from localcloud.protocol import MCPServer
+from apx import APX
+from apx.protocol import MCPServer
 
 
 def config(tmp_path: Path, extra: str = "") -> Path:
-    path=tmp_path/"localcloud.toml"
+    path=tmp_path/"apx.toml"
     path.write_text('version=1\n[[hosts]]\nname="test"\ntransport="local"\n[[projects]]\nname="demo"\ndescription="demo"\n'+extra)
     return path
 
@@ -15,7 +15,7 @@ def config(tmp_path: Path, extra: str = "") -> Path:
 class MissionLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
 
     def tearDown(self): self.temp.cleanup()
 
@@ -65,7 +65,7 @@ class MissionLifecycleTests(unittest.TestCase):
 class TaskLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
         self.mission=self.cloud.run("mission.create",project="demo",title="Fix bug",objective="Repair the thing").result
 
     def tearDown(self): self.temp.cleanup()
@@ -138,7 +138,7 @@ class TaskLifecycleTests(unittest.TestCase):
 class FindingsDecisionsBlockersEvidenceTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
         self.mission=self.cloud.run("mission.create",project="demo",title="Fix bug",objective="Repair").result
         self.task=self.cloud.run("task.create",mission=self.mission["id"],title="diagnose",reason="root cause").result
 
@@ -176,7 +176,7 @@ class FindingsDecisionsBlockersEvidenceTests(unittest.TestCase):
 class ScopeChangeTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
         self.mission=self.cloud.run("mission.create",project="demo",title="Fix OAuth",objective="Fix callback").result
 
     def tearDown(self): self.temp.cleanup()
@@ -216,7 +216,7 @@ action="host.shutdown"
 class MissionScopedPermissionTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name),ROLE_CONFIG),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name),ROLE_CONFIG),plugins=False)
         self.mission=self.cloud.run("mission.create",project="demo",title="Deploy fix",objective="Ship it").result
 
     def tearDown(self): self.temp.cleanup()
@@ -267,7 +267,7 @@ class MissionScopedPermissionTests(unittest.TestCase):
 class WorkContextAndResumeTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
         self.mission=self.cloud.run("mission.create",project="demo",title="Fix bug",objective="Repair",constraints=["do not touch billing"]).result
         self.task=self.cloud.run("task.create",mission=self.mission["id"],title="diagnose",reason="root cause",related_resources=["service:web"],acceptance_criteria=["root cause identified"]).result
 
@@ -305,7 +305,7 @@ class WorkContextAndResumeTests(unittest.TestCase):
 class MissionTemplateTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
 
     def tearDown(self): self.temp.cleanup()
 
@@ -318,7 +318,7 @@ class MissionTemplateTests(unittest.TestCase):
 class ResourceAndEventTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
 
     def tearDown(self): self.temp.cleanup()
 
@@ -344,7 +344,7 @@ class ResourceAndEventTests(unittest.TestCase):
 class InterfaceParityTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
 
     def tearDown(self): self.temp.cleanup()
 

@@ -1,10 +1,10 @@
-# LOCALCLOUD
+# APX
 
-LOCALCLOUD lets you use your computers and services together. It discovers what
+APX lets you use your computers and services together. It discovers what
 already exists, reaches hosts locally or through SSH, and exposes one small set
 of actions to Python, humans at a CLI, and AI agents through MCP.
 
-LOCALCLOUD is the reference implementation of **AXP — Action Exchange
+APX is the reference implementation of **AXP — Action Exchange
 Protocol**, a tiny operational language for Resources, Capabilities, Actions,
 Events, and Context. MCP, SSH, and the CLI are adapters around AXP rather than
 the foundation.
@@ -13,52 +13,82 @@ It is a package, not a control-plane server. The base runtime is Python's
 standard library. It does not install or require Docker, a database, an HTTP
 service, or an agent on remote machines.
 
+## APX vs OpenPower
+
+APX is the open-source framework: Resources, Actions, Events, Context, the
+Action Registry, and the Policy engine. It works completely on its own, on
+one machine, with zero account and zero network dependency.
+
+[OpenPower](https://openpower.one) is an optional product built on top of
+APX (separate repository) — a website, a server, and a per-machine installer
+(`op`) that add device linking, an optional hosted account, and remote
+dispatch between your own machines. OpenPower depends on APX; APX never
+depends on OpenPower, imports nothing from it, and has no code that talks to
+`openpower.one`. The only place APX even knows the name "OpenPower" is one
+explicitly-optional, unconfigured-by-default auth adapter
+(`auth_openpower.py`) that verifies OpenPower-issued identity tokens — the
+same generic `AuthContext` shape any other identity provider would produce.
+
+## Working now / deferred
+
+Working now: the Action Registry and self-description (`apx actions`),
+Resource/Actor/Policy primitives (`axp.py`, `policy.py`, `identity.py`),
+local + SSH transports, discovery, plugins, credentials-by-reference,
+Missions/Tasks (`apx mission`, `apx task`), Projects/Relationships, and the
+MCP adapter — all going through the one shared `APX.run()` dispatch path.
+
+Deferred: a unified machine-readable schema endpoint beyond `apx actions`
+(risk/permission metadata per action is on the roadmap, not yet exposed),
+richer HumanProfile/MachineProfile beyond the current AgentProfile/actor
+model, and asymmetric (RS256/EdDSA) JWT verification for the OpenPower auth
+adapter (HS256 shared-secret only today).
+
 ## Install and configure
 
 Python 3.11 or newer is required. From a checkout:
 
 ```bash
 python3 -m pip install -e .
-cp localcloud.example.toml localcloud.toml
-localcloud hosts
-localcloud inspect server
+cp apx.example.toml apx.toml
+apx hosts
+apx inspect server
 ```
 
-`localcloud.toml` is deliberately ignored because it describes a specific
-owner's machines. Use `LOCALCLOUD_CONFIG=/path/to/file.toml` or `--config` to
+`apx.toml` is deliberately ignored because it describes a specific
+owner's machines. Use `APX_CONFIG=/path/to/file.toml` or `--config` to
 select another file.
 
 ## CLI
 
 ```text
-localcloud hosts
-localcloud inspect HOST
-localcloud init [--host NAME=SSH_TARGET]
-localcloud doctor
-localcloud plugins
-localcloud plugin NAME
-localcloud relationships
-localcloud resources
-localcloud groups
-localcloud group show GROUP
-localcloud group add|remove GROUP RESOURCE
-localcloud create plugin NAME
-localcloud create action resource.verb
-localcloud create adapter NAME
-localcloud run resource.verb --input '{"key":"value"}'
-localcloud status HOST
-localcloud services HOST
-localcloud service status HOST SERVICE
-localcloud service start|stop|restart HOST SERVICE --yes
-localcloud logs HOST [SERVICE] --lines 100
-localcloud copy SOURCE_HOST SOURCE DESTINATION_HOST DESTINATION
-localcloud sync SOURCE_HOST SOURCE DESTINATION_HOST DESTINATION [--apply]
-localcloud projects
-localcloud project NAME
-localcloud discover-projects HOST [ROOT ...]
-localcloud actions
-localcloud shutdown HOST --yes
-localcloud mcp
+apx hosts
+apx inspect HOST
+apx init [--host NAME=SSH_TARGET]
+apx doctor
+apx plugins
+apx plugin NAME
+apx relationships
+apx resources
+apx groups
+apx group show GROUP
+apx group add|remove GROUP RESOURCE
+apx create plugin NAME
+apx create action resource.verb
+apx create adapter NAME
+apx run resource.verb --input '{"key":"value"}'
+apx status HOST
+apx services HOST
+apx service status HOST SERVICE
+apx service start|stop|restart HOST SERVICE --yes
+apx logs HOST [SERVICE] --lines 100
+apx copy SOURCE_HOST SOURCE DESTINATION_HOST DESTINATION
+apx sync SOURCE_HOST SOURCE DESTINATION_HOST DESTINATION [--apply]
+apx projects
+apx project NAME
+apx discover-projects HOST [ROOT ...]
+apx actions
+apx shutdown HOST --yes
+apx mcp
 ```
 
 `sync` is a dry run unless `--apply` is supplied. Destructive CLI actions
@@ -67,9 +97,9 @@ require `--yes`; their MCP tools require `confirm=true`.
 ## Python
 
 ```python
-from localcloud import LocalCloud
+from apx import APX
 
-cloud = LocalCloud("localcloud.toml")
+cloud = APX("apx.toml")
 result = cloud.run("service.status", host="server", service="caddy")
 print(result.to_dict())
 ```
@@ -81,9 +111,9 @@ Register this stdio command with an MCP client:
 ```json
 {
   "mcpServers": {
-    "localcloud": {
-      "command": "localcloud",
-      "args": ["--config", "/absolute/path/localcloud.toml", "mcp"]
+    "apx": {
+      "command": "apx",
+      "args": ["--config", "/absolute/path/apx.toml", "mcp"]
     }
   }
 }
@@ -105,7 +135,7 @@ Every execution becomes a typed, serializable request and result:
 {"axp":"0.1","type":"action.result","action":"service.status","ok":true,"result":{"service":"caddy"}}
 ```
 
-`localcloud.axp` defines Resource, Capability, VersionInfo, ActionDefinition,
+`apx.axp` defines Resource, Capability, VersionInfo, ActionDefinition,
 ActionRequest, ActionResult, Event, Context, and StructuredError. Resources may
 carry arbitrary groups and tags. These are plain dataclasses;
 AXP 0.1 adds no networking, negotiation, authentication, or storage system.
@@ -117,7 +147,7 @@ future interfaces can subscribe or emit without an event broker.
 
 ## Credentials and connections
 
-LOCALCLOUD stores references, not secret values:
+APX stores references, not secret values:
 
 ```toml
 [credentials.provider]
@@ -151,14 +181,14 @@ adapter = "mcp_stdio"
 command = ["python3", "/absolute/path/server.py"]
 ```
 
-Its implementation stays in that MCP server. LOCALCLOUD performs initialize,
+Its implementation stays in that MCP server. APX performs initialize,
 discovers tools, and adapts them as actions such as
 `existing_tools.some_tool`. It does not run a federation service.
 
 A Host can also declare ordered `connections`, including `ssh` and
 `tailscale_ssh`. `host.connection.status` tests them in order and selects the
 first usable method. Tailscale remains optional and is inspected through its
-local CLI; LocalCloud never changes tailnet policy or reads auth keys.
+local CLI; APX never changes tailnet policy or reads auth keys.
 
 ## Architecture
 
@@ -183,7 +213,7 @@ Python / CLI / MCP
 - `cloud.py`: public Python facade.
 - `cli.py`: human interface.
 - `protocol.py`: dependency-free MCP JSON-RPC/stdio adapter.
-- `plugins.py`: optional `localcloud.plugins` Python entry-point contract.
+- `plugins.py`: optional `apx.plugins` Python entry-point contract.
 - `credentials.py`: lazy environment references and shared redaction.
 - `adapters/`: local, SSH, HTTPS/API, webhook, and MCP stdio connections.
 - `scaffold.py`: small plugin, action, and adapter generators.
@@ -213,11 +243,11 @@ Capability-specific:
 - provider network access only when a configured provider action is invoked
 - native database clients only for the capabilities that use them
 
-LOCALCLOUD reports a missing capability instead of installing it.
+APX reports a missing capability instead of installing it.
 
 ## Plugins
 
-A plugin is a Python entry point in the `localcloud.plugins` group. Its loaded
+A plugin is a Python entry point in the `apx.plugins` group. Its loaded
 object implements `setup(api)`. The API can register actions, subscribe to or
 emit events, and contribute resources, capabilities, or contexts. Older
 `register(action_registry)` plugins remain supported.
@@ -241,35 +271,35 @@ base dependency.
 `VersionInfo` separates installed, configured, detected, API-family, supported,
 deprecated, recommended, and latest-known information. Compatibility is one of
 `current`, `supported`, `deprecated`, `unsupported`, `unknown`, or
-`update_available`; LocalCloud reports this information and never upgrades a
+`update_available`; APX reports this information and never upgrades a
 provider or host automatically.
 The official references used for bundled metadata are recorded in
 [`docs/provider-versions.md`](docs/provider-versions.md).
 
 ## Relationships and extension scaffolds
 
-`localcloud relationships` returns AXP `ResourceRelationship` records. Project
+`apx relationships` returns AXP `ResourceRelationship` records. Project
 locations automatically become relationships such as `developed_on`,
 `runs_on`, and `backed_up_to`; arbitrary relationships may be declared in TOML.
 There is no graph database.
 
-`localcloud groups`, `localcloud group show`, and `resource.list` provide simple
+`apx groups`, `apx group show`, and `resource.list` provide simple
 group/tag queries. CLI group edits use a small user-owned JSON overlay beside
 the TOML file rather than introducing a database.
 
-`localcloud create plugin|action|adapter NAME` writes two to four small files.
+`apx create plugin|action|adapter NAME` writes two to four small files.
 The plugin scaffold is an installable entry-point package with metadata, one
 example AXP action, a lazy credential-reference example, and a test. Generated
 actions and adapters similarly contain one implementation and one test.
 Once installed, plugin actions automatically appear in Python and MCP, and are
-available to humans through `localcloud run`. Destructive actions still require
+available to humans through `apx run`. Destructive actions still require
 `--yes`.
 
 ## First run and diagnosis
 
-`localcloud init` discovers the local host, prints its capabilities, optionally
+`apx init` discovers the local host, prints its capabilities, optionally
 accepts and validates SSH hosts, and writes minimal TOML. It never installs
-software. `localcloud doctor` validates configuration, connectivity, host
+software. `apx doctor` validates configuration, connectivity, host
 capabilities, missing optional commands, plugin health, and MCP tool creation.
 It also summarizes integrations, API compatibility, credential health,
 configured databases, service managers, schedulers, connections, and Tailscale
@@ -279,5 +309,5 @@ availability without contacting unconfigured providers.
 
 There is no raw-shell action. Arguments are passed as argv locally and are
 shell-quoted for SSH. Services and host names are validated. Secrets are not
-part of the configuration schema or discovery output. LOCALCLOUD never installs
+part of the configuration schema or discovery output. APX never installs
 remote software during inspection.

@@ -23,7 +23,7 @@ class MCPStdioAdapter:
     def _start(self):
         if self.process and self.process.poll() is None: return
         self.process=subprocess.Popen(self.command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)
-        self._request("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"localcloud","version":"0.4.0"}})
+        self._request("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"apx","version":"0.4.0"}})
         self._notify("notifications/initialized")
 
     def _request(self,method: str,params: dict[str,Any]):

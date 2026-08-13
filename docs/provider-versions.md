@@ -1,6 +1,6 @@
 # Provider version sources
 
-LocalCloud records provider version knowledge as metadata and does not upgrade
+APX records provider version knowledge as metadata and does not upgrade
 or migrate integrations automatically. These are the official references used
 for the 0.4 integration catalog (reviewed 2026-08-13):
 

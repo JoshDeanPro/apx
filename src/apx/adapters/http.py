@@ -38,7 +38,7 @@ class HTTPAdapter:
         if parsed.scheme!="https" and not (allow_http_localhost and parsed.scheme=="http" and local): raise ValueError("remote HTTP connections require HTTPS")
         if query:
             encoded=urllib.parse.urlencode(query,doseq=True); url += ("&" if parsed.query else "?")+encoded
-        safe_headers={"Accept":"application/json","User-Agent":"LocalCloud-AXP/0.4 (+https://openpower.one)",**(headers or {})}
+        safe_headers={"Accept":"application/json","User-Agent":"APX-AXP/0.4 (+https://openpower.one)",**(headers or {})}
         if credential: safe_headers[credential_header]=credential_prefix+self.credentials.resolve(credential)
         payload=None
         if body is not None:

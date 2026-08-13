@@ -7,13 +7,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from localcloud import CredentialReference, Event, LocalCloud
-from localcloud.adapters.http import HTTPAdapter
-from localcloud.adapters.mcp import MCPStdioAdapter
-from localcloud.adapters.webhook import WebhookAdapter
-from localcloud.credentials import CredentialError, CredentialRegistry, REDACTED
-from localcloud.scaffold import create
-from localcloud.cli import main as cli_main
+from apx import CredentialReference, Event, APX
+from apx.adapters.http import HTTPAdapter
+from apx.adapters.mcp import MCPStdioAdapter
+from apx.adapters.webhook import WebhookAdapter
+from apx.credentials import CredentialError, CredentialRegistry, REDACTED
+from apx.scaffold import create
+from apx.cli import main as cli_main
 
 
 class FakeResponse:
@@ -25,12 +25,12 @@ class FakeResponse:
 
 class ConnectionTests(unittest.TestCase):
     def test_credential_health_lazy_resolution_and_redaction(self):
-        registry=CredentialRegistry({"api":CredentialReference("api","provider","environment","TEST_LOCALCLOUD_TOKEN")})
+        registry=CredentialRegistry({"api":CredentialReference("api","provider","environment","TEST_APX_TOKEN")})
         with patch.dict(os.environ,{},clear=False):
-            os.environ.pop("TEST_LOCALCLOUD_TOKEN",None)
+            os.environ.pop("TEST_APX_TOKEN",None)
             self.assertFalse(registry.health()[0]["available"])
             with self.assertRaises(CredentialError): registry.resolve("api")
-        with patch.dict(os.environ,{"TEST_LOCALCLOUD_TOKEN":"rotated-value"}):
+        with patch.dict(os.environ,{"TEST_APX_TOKEN":"rotated-value"}):
             self.assertEqual(registry.resolve("api"),"rotated-value")
             scrubbed=registry.redact({"nested":{"token":"anything","ordinary":"prefix rotated-value suffix"}})
             self.assertEqual(scrubbed["nested"],{"token":REDACTED,"ordinary":f"prefix {REDACTED} suffix"})
@@ -52,8 +52,8 @@ class ConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/"config.toml"; path.write_text('version=1\n[[hosts]]\nname="local"\ntransport="local"\n[credentials.api]\nsource="environment"\nreference="TEST_ACTION_SECRET"\n')
             with patch.dict(os.environ,{"TEST_ACTION_SECRET":"never-show-this"}):
-                cloud=LocalCloud(path,plugins=False)
-                from localcloud.actions import RegisteredAction
+                cloud=APX(path,plugins=False)
+                from apx.actions import RegisteredAction
                 cloud.actions.register(RegisteredAction("test.leak","test",lambda:{"ordinary":"never-show-this","password":"also-secret"},{"type":"object","properties":{}}))
                 result=cloud.run("test.leak").to_dict()
             self.assertNotIn("never-show-this",json.dumps(result)); self.assertNotIn("also-secret",json.dumps(result))
@@ -70,7 +70,7 @@ class ConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/"config.toml"
             path.write_text('version=1\n[[hosts]]\nname="local"\ntransport="local"\n[[projects]]\nname="demo"\n[[projects.locations]]\nhost="local"\npath="/tmp/demo"\nrole="development"\n')
-            relationship=LocalCloud(path,plugins=False).relationships()[0]
+            relationship=APX(path,plugins=False).relationships()[0]
             self.assertEqual((relationship.source,relationship.relation,relationship.target),("project:demo","developed_on","host:local"))
 
     def test_scaffolds_are_small_and_valid(self):
@@ -87,10 +87,10 @@ class ConnectionTests(unittest.TestCase):
                 code=cli_main(["--config",str(config),"run","host.inspect","--input",'{"host":"local"}'])
             self.assertEqual(code,0); self.assertIn('"type": "action.result"',printed.call_args.args[0])
 
-    def test_stdio_mcp_adapter_discovers_localcloud(self):
+    def test_stdio_mcp_adapter_discovers_apx(self):
         with tempfile.TemporaryDirectory() as directory:
             config=Path(directory)/"config.toml"; config.write_text('version=1\n[[hosts]]\nname="local"\ntransport="local"\n')
-            command=[os.sys.executable,"-m","localcloud","--config",str(config),"mcp"]
+            command=[os.sys.executable,"-m","apx","--config",str(config),"mcp"]
             adapter=MCPStdioAdapter(command,timeout=10)
             try:
                 tools=adapter.tools(); self.assertTrue(any(tool["name"]=="host_info" for tool in tools))
@@ -101,10 +101,10 @@ class ConnectionTests(unittest.TestCase):
     def test_configured_mcp_tools_become_axp_actions(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory); child=root/"child.toml"; child.write_text('version=1\n[[hosts]]\nname="child"\ntransport="local"\n')
-            command=[os.sys.executable,"-m","localcloud","--config",str(child),"mcp"]
+            command=[os.sys.executable,"-m","apx","--config",str(child),"mcp"]
             parent=root/"parent.toml"
             parent.write_text('version=1\n[[hosts]]\nname="local"\ntransport="local"\n[[connections]]\nid="child"\nadapter="mcp_stdio"\ncommand='+json.dumps(command)+'\n')
-            cloud=LocalCloud(parent,plugins=False)
+            cloud=APX(parent,plugins=False)
             try:
                 self.assertTrue(cloud.connection_health[0]["ok"])
                 result=cloud.run("child.host_info",host="child")

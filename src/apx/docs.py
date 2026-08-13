@@ -1,7 +1,7 @@
-"""Generate human, AI, and machine documentation from LocalCloud's structured truth.
+"""Generate human, AI, and machine documentation from APX's structured truth.
 
 Nothing here is hand-duplicated: every section is rendered from Resources, Context,
-roles/policy, and state already known to a LocalCloud instance. Output always passes
+roles/policy, and state already known to a APX instance. Output always passes
 through the existing credential redaction before being returned.
 """
 from __future__ import annotations

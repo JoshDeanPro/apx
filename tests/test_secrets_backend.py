@@ -4,26 +4,26 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from localcloud import LocalCloud
-from localcloud.credentials import (
+from apx import APX
+from apx.credentials import (
     CredentialReference, CredentialRegistry, EnvironmentBackend, KeychainBackend,
     MockRotator, OpenBaoBackend, RotationWorkflow, SecretBackendError, SecretsManager,
 )
 
 
 def config(tmp_path: Path, extra: str = "") -> Path:
-    path=tmp_path/"localcloud.toml"
+    path=tmp_path/"apx.toml"
     path.write_text('version=1\n[[hosts]]\nname="test"\ntransport="local"\n'+extra)
     return path
 
 
 class EnvironmentBackendTests(unittest.TestCase):
     def test_health_and_reveal(self):
-        backend=EnvironmentBackend(); ref=CredentialReference("token","generic","environment","LOCALCLOUD_TEST_TOKEN")
+        backend=EnvironmentBackend(); ref=CredentialReference("token","generic","environment","APX_TEST_TOKEN")
         with patch.dict("os.environ",{},clear=False):
             self.assertFalse(backend.health(ref)["available"])
             with self.assertRaises(SecretBackendError): backend.reveal(ref)
-        with patch.dict("os.environ",{"LOCALCLOUD_TEST_TOKEN":"secret-value"}):
+        with patch.dict("os.environ",{"APX_TEST_TOKEN":"secret-value"}):
             self.assertTrue(backend.health(ref)["available"])
             self.assertEqual(backend.reveal(ref),"secret-value")
 
@@ -49,7 +49,7 @@ class KeychainBackendTests(unittest.TestCase):
         self.assertTrue(all(argv[0]=="/usr/bin/security" for argv in calls))
 
     def test_darwin_only(self):
-        with patch("localcloud.credentials.sys.platform","linux"):
+        with patch("apx.credentials.sys.platform","linux"):
             with self.assertRaises(SecretBackendError): KeychainBackend()
 
     def test_subprocess_timeout_becomes_a_secret_backend_error_not_a_raw_crash(self):
@@ -86,17 +86,17 @@ class OpenBaoBackendTests(unittest.TestCase):
 
 class SecretsManagerTests(unittest.TestCase):
     def test_get_never_returns_raw_value(self):
-        registry=CredentialRegistry.from_config({"token":{"source":"environment","reference":"LOCALCLOUD_TEST_TOKEN"}})
+        registry=CredentialRegistry.from_config({"token":{"source":"environment","reference":"APX_TEST_TOKEN"}})
         manager=SecretsManager(registry)
-        with patch.dict("os.environ",{"LOCALCLOUD_TEST_TOKEN":"super-secret"}):
+        with patch.dict("os.environ",{"APX_TEST_TOKEN":"super-secret"}):
             result=manager.get("token")
         self.assertEqual(result["value"],"<redacted>")
         self.assertNotIn("super-secret",str(result))
 
     def test_reveal_returns_raw_value_when_called_directly(self):
-        registry=CredentialRegistry.from_config({"token":{"source":"environment","reference":"LOCALCLOUD_TEST_TOKEN"}})
+        registry=CredentialRegistry.from_config({"token":{"source":"environment","reference":"APX_TEST_TOKEN"}})
         manager=SecretsManager(registry)
-        with patch.dict("os.environ",{"LOCALCLOUD_TEST_TOKEN":"super-secret"}):
+        with patch.dict("os.environ",{"APX_TEST_TOKEN":"super-secret"}):
             self.assertEqual(manager.reveal("token")["value"],"super-secret")
 
 
@@ -123,14 +123,14 @@ class RotationWorkflowTests(unittest.TestCase):
         self.assertEqual(rotator.revoked,[])
 
 
-class SecretActionsThroughLocalCloudTests(unittest.TestCase):
+class SecretActionsThroughAPXTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
 
     def tearDown(self): self.temp.cleanup()
 
     def test_secret_set_result_never_echoes_value(self):
-        cloud=LocalCloud(config(Path(self.temp.name),'[credentials.token]\nsource="environment"\nreference="LOCALCLOUD_TEST_TOKEN"\n'),plugins=False)
+        cloud=APX(config(Path(self.temp.name),'[credentials.token]\nsource="environment"\nreference="APX_TEST_TOKEN"\n'),plugins=False)
         result=cloud.run("secret.set",id="token",value="brand-new-secret")
         self.assertNotIn("brand-new-secret",str(result.to_dict()))
 
@@ -138,7 +138,7 @@ class SecretActionsThroughLocalCloudTests(unittest.TestCase):
         extra='''
 [credentials.token]
 source="environment"
-reference="LOCALCLOUD_TEST_TOKEN"
+reference="APX_TEST_TOKEN"
 [[actors]]
 id="agent:claude:mac"
 roles=["developer"]
@@ -154,23 +154,23 @@ name="admin"
 [[roles.allow]]
 action="*"
 '''
-        cloud=LocalCloud(config(Path(self.temp.name),extra),plugins=False)
-        with patch.dict("os.environ",{"LOCALCLOUD_TEST_TOKEN":"super-secret"}):
+        cloud=APX(config(Path(self.temp.name),extra),plugins=False)
+        with patch.dict("os.environ",{"APX_TEST_TOKEN":"super-secret"}):
             denied=cloud.run("secret.reveal",actor="agent:claude:mac",id="token")
             self.assertFalse(denied.ok); self.assertEqual(denied.error.code,"permission_denied")
             allowed=cloud.run("secret.reveal",actor="human:ethan",id="token")
             self.assertTrue(allowed.ok); self.assertEqual(allowed.result["value"],"super-secret")
 
     def test_secret_get_is_always_masked_regardless_of_actor(self):
-        cloud=LocalCloud(config(Path(self.temp.name),'[credentials.token]\nsource="environment"\nreference="LOCALCLOUD_TEST_TOKEN"\n'),plugins=False)
-        with patch.dict("os.environ",{"LOCALCLOUD_TEST_TOKEN":"super-secret"}):
+        cloud=APX(config(Path(self.temp.name),'[credentials.token]\nsource="environment"\nreference="APX_TEST_TOKEN"\n'),plugins=False)
+        with patch.dict("os.environ",{"APX_TEST_TOKEN":"super-secret"}):
             result=cloud.run("secret.get",id="token")
         self.assertNotIn("super-secret",str(result.to_dict()))
 
     def test_secret_rotate_never_reports_success_without_a_real_adapter(self):
         # No real provider rotator is wired into the live action this milestone -- it must
         # fail clearly rather than silently run MockRotator and report a fake success.
-        cloud=LocalCloud(config(Path(self.temp.name),'[credentials.token]\nsource="environment"\nreference="LOCALCLOUD_TEST_TOKEN"\n'),plugins=False)
+        cloud=APX(config(Path(self.temp.name),'[credentials.token]\nsource="environment"\nreference="APX_TEST_TOKEN"\n'),plugins=False)
         configured=cloud.run("secret.rotate",id="token")
         self.assertFalse(configured.ok)
         unconfigured=cloud.run("secret.rotate",id="not-a-real-credential")

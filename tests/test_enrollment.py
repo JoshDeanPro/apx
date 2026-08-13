@@ -2,12 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from localcloud import LocalCloud
-from localcloud.enrollment import EnrollmentError, EnrollmentStore
+from apx import APX
+from apx.enrollment import EnrollmentError, EnrollmentStore
 
 
 def config(tmp_path: Path, extra: str = "") -> Path:
-    path=tmp_path/"localcloud.toml"
+    path=tmp_path/"apx.toml"
     path.write_text('version=1\n[[hosts]]\nname="test"\ntransport="local"\n'+extra)
     return path
 
@@ -15,7 +15,7 @@ def config(tmp_path: Path, extra: str = "") -> Path:
 class EnrollmentStoreTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.config_path=Path(self.temp.name)/"localcloud.toml"
+        self.config_path=Path(self.temp.name)/"apx.toml"
         self.store=EnrollmentStore(self.config_path)
 
     def tearDown(self): self.temp.cleanup()
@@ -73,22 +73,22 @@ class EnrollmentActionsTests(unittest.TestCase):
     def tearDown(self): self.temp.cleanup()
 
     def test_default_mode_is_manual_and_requires_approval(self):
-        cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        cloud=APX(config(Path(self.temp.name)),plugins=False)
         result=cloud.run("identity.enrollment.request",machine_id="machine:mac",runtime="claude")
         self.assertTrue(result.ok); self.assertEqual(result.result["status"],"pending")
 
     def test_configured_automatic_mode_approves_immediately(self):
-        cloud=LocalCloud(config(Path(self.temp.name),'[auth]\nenrollment_mode="automatic"\n'),plugins=False)
+        cloud=APX(config(Path(self.temp.name),'[auth]\nenrollment_mode="automatic"\n'),plugins=False)
         result=cloud.run("identity.enrollment.request",machine_id="machine:mac",runtime="claude")
         self.assertEqual(result.result["status"],"approved")
 
     def test_configured_disabled_mode_refuses(self):
-        cloud=LocalCloud(config(Path(self.temp.name),'[auth]\nenrollment_mode="disabled"\n'),plugins=False)
+        cloud=APX(config(Path(self.temp.name),'[auth]\nenrollment_mode="disabled"\n'),plugins=False)
         result=cloud.run("identity.enrollment.request",machine_id="machine:mac",runtime="claude")
         self.assertFalse(result.ok)
 
     def test_enrollment_events_emitted(self):
-        cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        cloud=APX(config(Path(self.temp.name)),plugins=False)
         events=[]; cloud.events.subscribe("*",events.append,owner="test")
         request=cloud.run("identity.enrollment.request",machine_id="machine:mac",runtime="claude").result
         cloud.run("identity.enrollment.approve",request_id=request["id"],approved_by="human:ethan")
@@ -97,7 +97,7 @@ class EnrollmentActionsTests(unittest.TestCase):
         self.assertIn("identity.enrollment_approved",names)
 
     def test_deny_event(self):
-        cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        cloud=APX(config(Path(self.temp.name)),plugins=False)
         events=[]; cloud.events.subscribe("*",events.append,owner="test")
         request=cloud.run("identity.enrollment.request",machine_id="machine:mac",runtime="claude").result
         cloud.run("identity.enrollment.deny",request_id=request["id"])

@@ -4,12 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from localcloud import LocalCloud
-from localcloud.credentials import ActorCredentialError, ActorCredentialStore
+from apx import APX
+from apx.credentials import ActorCredentialError, ActorCredentialStore
 
 
 def config(tmp_path: Path, extra: str = "") -> Path:
-    path=tmp_path/"localcloud.toml"
+    path=tmp_path/"apx.toml"
     path.write_text('version=1\n[[hosts]]\nname="test"\ntransport="local"\n'+extra)
     return path
 
@@ -20,7 +20,7 @@ def fingerprint(value: str) -> str: return hashlib.sha256(value.encode()).hexdig
 class ActorCredentialStoreTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.config_path=Path(self.temp.name)/"localcloud.toml"
+        self.config_path=Path(self.temp.name)/"apx.toml"
         self.store=ActorCredentialStore(self.config_path)
 
     def tearDown(self): self.temp.cleanup()
@@ -83,7 +83,7 @@ class ActorCredentialStoreTests(unittest.TestCase):
 class ActorCredentialActionsTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
 
     def tearDown(self): self.temp.cleanup()
 

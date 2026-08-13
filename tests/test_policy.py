@@ -1,7 +1,7 @@
 import unittest
 
-from localcloud.identity import ActorRegistry
-from localcloud.policy import PolicyEngine, RolePolicy, ScopedRule
+from apx.identity import ActorRegistry
+from apx.policy import PolicyEngine, RolePolicy, ScopedRule
 
 
 def engine(actors_raw, roles_raw):
