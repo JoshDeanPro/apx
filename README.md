@@ -34,14 +34,19 @@ same generic `AuthContext` shape any other identity provider would produce.
 Working now: the Action Registry and self-description (`apx actions`),
 Resource/Actor/Policy primitives (`axp.py`, `policy.py`, `identity.py`),
 local + SSH transports, discovery, plugins, credentials-by-reference,
-Missions/Tasks (`apx mission`, `apx task`), Projects/Relationships, and the
-MCP adapter — all going through the one shared `APX.run()` dispatch path.
+Missions/Tasks (`apx mission`, `apx task`), Projects/Relationships, the
+MCP adapter, and Action Providers (`apx providers`, prepare/authorize/
+execute/verify/receipt, the reference `subscriptions` provider, the optional
+HTTP adapter) — all going through the one shared `APX.run()`/`execute()`
+dispatch path. See [Action Providers](docs/action-providers.md).
 
-Deferred: a unified machine-readable schema endpoint beyond `apx actions`
-(risk/permission metadata per action is on the roadmap, not yet exposed),
-richer HumanProfile/MachineProfile beyond the current AgentProfile/actor
-model, and asymmetric (RS256/EdDSA) JWT verification for the OpenPower auth
-adapter (HS256 shared-secret only today).
+Deferred: `op` (OpenPower's CLI) provider/action inspection commands (`apx`
+has them; `op` doesn't yet), a real proof-of-possession signing
+implementation for `CredentialHandle` (the abstraction exists; bearer tokens
+are what's actually implemented), richer HumanProfile/MachineProfile beyond
+the current AgentProfile/actor model, and asymmetric (RS256/EdDSA) JWT
+verification for the OpenPower auth adapter (HS256 shared-secret only
+today).
 
 ## Install and configure
 
@@ -222,6 +227,8 @@ APX also includes transport-neutral Action Providers: typed manifests at the con
 - `system.py`: read-only connectivity, Tailscale, cron/timer, and launchd discovery.
 - `service_managers.py`: explicit systemd/launchd capability contracts.
 - `integrations/`: modular provider and database plugins.
+- `providers.py`: Action Provider SDK, manifest, remote discovery, HTTP adapter -- see [Action Providers](docs/action-providers.md).
+- `examples/`: runnable reference implementations, e.g. `subscriptions.py`.
 
 Configured Project records relate development, production, services, domains,
 archives, and context. Discovery remains authoritative for installed host

@@ -92,14 +92,19 @@ type = "reference"
 enabled = true
 ```
 
-Then use either the `apx` or `op` entry point:
+Then, with the `apx` CLI:
 
 ```console
-op providers
-op provider inspect reference.local
-op actions --provider reference.local
-op action inspect subscription.cancel --provider reference.local
+apx providers
+apx provider inspect reference.local
+apx actions --provider reference.local
+apx action inspect subscription.cancel --provider reference.local
 ```
+
+`op` (OpenPower's CLI, a separate optional product built on APX) does not yet
+have equivalent `providers`/`provider`/`action` inspection commands -- it
+currently only delegates `host`/`service`/`logs` actions to APX. Deferred,
+not implemented; do not assume `op providers` works today.
 
 The implementation lives in `apx.examples.subscriptions`. It has inspect, transaction-style start, confirmed cancel, resume, preparation, verification, receipts, and real in-memory state changes; it uses no production credentials.
 
