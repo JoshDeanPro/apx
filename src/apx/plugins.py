@@ -13,14 +13,14 @@ from .config import default_config_path
 from .events import EventRouter
 
 if TYPE_CHECKING:
-    from .cloud import LocalCloud
+    from .cloud import APX
 
 
 @dataclass
 class PluginAPI:
     actions: ActionRegistry
     events: EventRouter
-    cloud: "LocalCloud"
+    cloud: "APX"
     owner: str
     resources: list[Resource] = field(default_factory=list)
     capabilities: list[Capability] = field(default_factory=list)
@@ -70,7 +70,7 @@ class PluginMetadata:
 
 
 class PluginManager:
-    def __init__(self, actions: ActionRegistry, events: EventRouter, cloud: "LocalCloud"):
+    def __init__(self, actions: ActionRegistry, events: EventRouter, cloud: "APX"):
         self.actions,self.events,self.cloud=actions,events,cloud
         self.health: list[dict[str,Any]]=[]
         self.resources: list[Resource]=[]; self.capabilities: list[Capability]=[]; self.contexts: list[Context]=[]
@@ -117,7 +117,7 @@ class PluginManager:
         }
         for name,module_name in builtins.items():
             try:
-                module=__import__(f"localcloud.integrations.{module_name}",fromlist=["Plugin"])
+                module=__import__(f"apx.integrations.{module_name}",fromlist=["Plugin"])
                 plugin=module.Plugin(settings.get(name,{}))
                 if settings.get(name,{}).get("enabled",False): self._setup(name,plugin)
                 else:
@@ -133,7 +133,7 @@ class PluginManager:
                 from .integrations.discord_webhook import DiscordWebhookPlugin
                 self._setup("discord_webhook",DiscordWebhookPlugin.from_config(discord))
             except Exception as error: self.health.append({"name":"discord_webhook","ok":False,"error":str(error)})
-        for point in entry_points(group="localcloud.plugins"):
+        for point in entry_points(group="apx.plugins"):
             try: self._setup(point.name,point.load()())
             except Exception as error: self.health.append({"name":point.name,"ok":False,"error":str(error)})
         return [item["name"] for item in self.health if item["ok"]]

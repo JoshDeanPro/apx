@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .cloud import LocalCloud
+from .cloud import APX
 from .config import default_config_path
 from .protocol import MCPServer
 from .system import connection_status, scheduler_list, tailscale_status
@@ -13,7 +13,7 @@ def diagnose(config: str | Path | None = None) -> dict[str,Any]:
     path=Path(config).expanduser() if config else default_config_path()
     report={"ok":True,"config":{"path":str(path),"ok":False},"hosts":[],"credentials":[],"connections":[],"plugins":[],"integrations":[],"databases":[],"mcp":{},"problems":[]}
     try:
-        cloud=LocalCloud(path)
+        cloud=APX(path)
         report["config"]["ok"]=True
     except Exception as error:
         report["ok"]=False; report["config"]["error"]=str(error); report["problems"].append(str(error)); return report

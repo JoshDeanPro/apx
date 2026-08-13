@@ -7,7 +7,7 @@ import traceback
 from typing import Any
 
 from .axp import Event
-from .cloud import LocalCloud
+from .cloud import APX
 
 FALLBACK_VERSION = "2025-06-18"
 
@@ -17,7 +17,7 @@ def tool_name(action: str) -> str:
 
 
 class MCPServer:
-    def __init__(self, cloud: LocalCloud, actor: str | None = None, auth_context: dict[str, Any] | None = None):
+    def __init__(self, cloud: APX, actor: str | None = None, auth_context: dict[str, Any] | None = None):
         self.cloud = cloud
         self.actor = actor or cloud.actors.resolve_default()
         self.auth_context = auth_context
@@ -43,7 +43,7 @@ class MCPServer:
             if method=="initialize":
                 requested=params.get("protocolVersion")
                 version=requested if isinstance(requested,str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}",requested) else FALLBACK_VERSION
-                result={"protocolVersion":version,"capabilities":{"tools":{"listChanged":False}},"serverInfo":{"name":"localcloud","version":"0.4.0"},"instructions":"Use the same discovered LOCALCLOUD actions available to human CLI and Python callers. Prefer read-only inspection before mutations."}
+                result={"protocolVersion":version,"capabilities":{"tools":{"listChanged":False}},"serverInfo":{"name":"apx","version":"0.4.0"},"instructions":"Use the same discovered APX actions available to human CLI and Python callers. Prefer read-only inspection before mutations."}
             elif method=="ping": result={}
             elif method=="tools/list": result={"tools":self.tools()}
             elif method=="tools/call":

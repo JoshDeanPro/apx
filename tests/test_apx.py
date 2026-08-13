@@ -2,20 +2,20 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from localcloud import LocalCloud
-from localcloud.protocol import MCPServer
+from apx import APX
+from apx.protocol import MCPServer
 
 
 def config(tmp_path: Path) -> Path:
-    path=tmp_path/"localcloud.toml"
+    path=tmp_path/"apx.toml"
     path.write_text('version=1\n[[hosts]]\nname="test"\ntransport="local"\n')
     return path
 
 
-class LocalCloudTests(unittest.TestCase):
+class APXTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
 
     def tearDown(self): self.temp.cleanup()
 

@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 
-from .cloud import LocalCloud
+from .cloud import APX
 from .protocol import MCPServer
 
 
@@ -12,13 +12,13 @@ def output(value: object) -> None: print(json.dumps(value,indent=2,ensure_ascii=
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser=argparse.ArgumentParser(prog="localcloud",description="Use your computers and services together.")
+    parser=argparse.ArgumentParser(prog="apx",description="Use your computers and services together.")
     parser.add_argument("--config",help="TOML configuration path")
     parser.add_argument("--yes",action="store_true",help="confirm destructive actions")
     parser.add_argument("--actor",help="acting identity, e.g. agent::mac (defaults to the configured default_actor)")
     sub=parser.add_subparsers(dest="command",required=True)
     init=sub.add_parser("init",help="discover this machine and create minimal configuration")
-    init.add_argument("--output",default="localcloud.toml")
+    init.add_argument("--output",default="apx.toml")
     init.add_argument("--host",action="append",default=[],metavar="NAME=SSH_TARGET")
     init.add_argument("--non-interactive",action="store_true")
     init.add_argument("--force",action="store_true")
@@ -44,10 +44,6 @@ def main(argv: list[str] | None = None) -> int:
     discover=sub.add_parser("discover-projects",help="discover repository/project directories"); discover.add_argument("host"); discover.add_argument("roots",nargs="*")
     shutdown=sub.add_parser("shutdown",help="shut down a host (requires --yes)"); shutdown.add_argument("host")
     sub.add_parser("actions",help="list the shared action catalog")
-    openpower=sub.add_parser("openpower",help="report this machine to openpower.one and run its dispatched commands")
-    openpower.add_argument("verb",choices=["sync","run"])
-    openpower.add_argument("--interval",type=int,default=30,help="seconds between cycles, for 'run' (default 30)")
-    openpower.add_argument("--device-name",help="override the reported device name (default: this machine's hostname)")
     mcp=sub.add_parser("mcp",help="serve MCP over stdio"); mcp.add_argument("--actor",help="overrides the global --actor for this MCP session")
     whoami=sub.add_parser("whoami",help="describe an actor and its assigned roles"); whoami.add_argument("target_actor",nargs="?")
     policy=sub.add_parser("policy",help="explain a policy decision"); policy.add_argument("verb",choices=["explain"]); policy.add_argument("target_actor"); policy.add_argument("action"); policy.add_argument("--target",action="append",default=[],metavar="KEY=VALUE")
@@ -102,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         from .scaffold import create
         try: output(create(args.kind,args.name,args.output)); return 0
         except Exception as error: output({"ok":False,"error":str(error)}); return 1
-    cloud=LocalCloud(args.config)
+    cloud=APX(args.config)
     if args.command=="plugins":
         output({"plugins":[cloud.plugin_manager.inspect(name) for name in sorted(cloud.plugin_manager.metadata)]}); return 0
     if args.command=="plugin":
@@ -206,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
             from .auth_openpower import DeviceLinkDenied,DeviceLinkExpired,DeviceLinkPending,poll_device_token_once,request_device_link
             openpower_config=cloud.config.get("auth",{}).get("openpower")
             if not openpower_config or not openpower_config.get("endpoint"):
-                output({"ok":False,"error":"[auth.openpower].endpoint is not configured in localcloud.toml"}); return 2
+                output({"ok":False,"error":"[auth.openpower].endpoint is not configured in apx.toml"}); return 2
             agent_name=args.agent_name or f"AXP on {socket.gethostname()}"
             try: link=request_device_link(openpower_config["endpoint"],agent_name)
             except Exception as error: output({"ok":False,"error":str(error)}); return 1
@@ -255,28 +251,6 @@ def main(argv: list[str] | None = None) -> int:
         elif v=="confirm-rotation": result=cloud.run("credential.confirm_rotation",actor=args.actor,previous_credential_id=args.id)
         else: result=cloud.run("credential.revoke",actor=args.actor,credential_id=args.id,revoked_by=args.actor)  # revoke
         output(result.to_dict()); return 0 if result.ok else 1
-    if args.command=="openpower":
-        from . import openpower_bridge
-        openpower_config=cloud.config.get("auth",{}).get("openpower")
-        if not openpower_config or not openpower_config.get("endpoint"):
-            output({"ok":False,"error":"[auth.openpower].endpoint is not configured in localcloud.toml"}); return 2
-        try: token=cloud.secrets.reveal("openpower_axp_identity_token")["value"]
-        except Exception as error:
-            output({"ok":False,"error":f"no OpenPower identity token available -- run 'localcloud identity device-link' first: {error}"}); return 2
-        if not token:
-            output({"ok":False,"error":"no OpenPower identity token available -- run 'localcloud identity device-link' first"}); return 2
-        actor=args.actor or cloud.actors.resolve_default()
-        if args.verb=="sync":
-            try: result=openpower_bridge.run_once(cloud,openpower_config["endpoint"],token,actor=actor)
-            except Exception as error: output({"ok":False,"error":str(error)}); return 1
-            output({"ok":True,**result}); return 0
-        # run: loop forever, printing progress to stderr; Ctrl-C to stop.
-        def _on_tick(result):
-            print(f"[openpower] device={result.get('device_id')} commands_executed={len(result.get('commands_executed',[]))}",file=sys.stderr)
-        try:
-            openpower_bridge.run_loop(cloud,openpower_config["endpoint"],token,actor=actor,interval=args.interval,on_tick=_on_tick)
-        except KeyboardInterrupt:
-            output({"ok":True,"stopped":True}); return 0
     if args.command=="service": name=f"service.{args.verb}"; inputs={"host":args.host,"service":args.service}
     elif args.command=="hosts": name,inputs="host.list",{}
     elif args.command=="inspect": name,inputs="host.inspect",{"host":args.host}

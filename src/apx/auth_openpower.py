@@ -29,7 +29,7 @@ from typing import Any, Callable
 # device-authorization-grant shaped): this machine never needs a localhost
 # callback, and the website never has to "just know" what happened on some
 # machine -- approval only ever happens inside the website's own
-# already-authenticated session. See `localcloud identity device-link`.
+# already-authenticated session. See `apx identity device-link`.
 
 
 class DeviceLinkPending(RuntimeError):

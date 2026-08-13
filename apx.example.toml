@@ -3,7 +3,7 @@ version = 1
 [credentials.discord_webhook]
 provider = "discord"
 source = "environment"
-reference = "LOCALCLOUD_DISCORD_WEBHOOK_URL"
+reference = "APX_DISCORD_WEBHOOK_URL"
 description = "Optional outbound Discord notification webhook."
 groups = ["notifications"]
 tags = ["webhook"]
@@ -56,7 +56,7 @@ commands = {test = "python -m pytest"}
 relationships = [{host = "workstation", role = "development"}]
 deployment = {method = "existing project scripts", preference = "verify after deployment"}
 
-# Databases are resources LocalCloud can understand; LocalCloud does not need
+# Databases are resources APX can understand; APX does not need
 # one itself. Passwords remain credential references.
 # [[databases]]
 # id = "example-db"
@@ -185,7 +185,7 @@ target = "host:workstation"
 # audience = "axp"
 
 # Link a declared actor to an OpenPower-side identity (metadata only -- never
-# a password or browser refresh token). Equivalent to `localcloud identity link`.
+# a password or browser refresh token). Equivalent to `apx identity link`.
 # [[actors]]
 # id = "agent::workstation"
 # openpower_identity = "agent:5b6f2c10-...-uuid"

@@ -133,7 +133,7 @@ class KeychainBackend:
     """macOS Keychain, via the stdlib-only `security` CLI (no new dependency). Darwin only."""
     name="keychain"
     capabilities=frozenset({"get","set","health"})
-    service="localcloud"
+    service="apx"
 
     def __init__(self, run: Callable[..., subprocess.CompletedProcess] = subprocess.run):
         if sys.platform!="darwin": raise SecretBackendError("the keychain backend is only available on macOS")

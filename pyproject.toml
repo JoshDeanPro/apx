@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "localcloud"
+name = "apx"
 version = "0.4.0"
 description = "Use your computers and services together, locally and through MCP."
 readme = "README.md"
@@ -12,7 +12,7 @@ license = {text = "MIT"}
 dependencies = []
 
 [project.scripts]
-localcloud = "localcloud.cli:main"
+apx = "apx.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

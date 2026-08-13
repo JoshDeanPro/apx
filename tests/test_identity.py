@@ -1,6 +1,6 @@
 import unittest
 
-from localcloud.identity import ActorRegistry, AgentProfile, parse_actor_id
+from apx.identity import ActorRegistry, AgentProfile, parse_actor_id
 
 
 class IdentityTests(unittest.TestCase):

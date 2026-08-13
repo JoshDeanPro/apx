@@ -5,17 +5,17 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from localcloud import ActionRequest, ActionResult, Context, Event, LocalCloud, Resource, StructuredError
-from localcloud.actions import RegisteredAction
-from localcloud.doctor import diagnose
-from localcloud.events import EventRouter
-from localcloud.integrations.discord_webhook import DiscordWebhookPlugin
-from localcloud.plugins import PluginAPI, PluginManager, PluginMetadata
-from localcloud.setup import initialize
+from apx import ActionRequest, ActionResult, Context, Event, APX, Resource, StructuredError
+from apx.actions import RegisteredAction
+from apx.doctor import diagnose
+from apx.events import EventRouter
+from apx.integrations.discord_webhook import DiscordWebhookPlugin
+from apx.plugins import PluginAPI, PluginManager, PluginMetadata
+from apx.setup import initialize
 
 
 def config(root: Path) -> Path:
-    path=root/"localcloud.toml"
+    path=root/"apx.toml"
     path.write_text('version=1\n[[hosts]]\nname="test"\ntransport="local"\n')
     return path
 
@@ -31,7 +31,7 @@ class AXPTests(unittest.TestCase):
 
     def test_structured_execution_error(self):
         with tempfile.TemporaryDirectory() as directory:
-            result=LocalCloud(config(Path(directory)),plugins=False).run("missing.action")
+            result=APX(config(Path(directory)),plugins=False).run("missing.action")
             self.assertFalse(result.ok); self.assertEqual(result.error.code,"action.not_found")
 
     def test_event_creation_and_routing(self):
@@ -43,7 +43,7 @@ class AXPTests(unittest.TestCase):
 
     def test_plugin_actions_subscriptions_and_discord_listener(self):
         with tempfile.TemporaryDirectory() as directory:
-            cloud=LocalCloud(config(Path(directory)),plugins=False)
+            cloud=APX(config(Path(directory)),plugins=False)
             seen=[]
             class Demo:
                 name="demo"
@@ -57,7 +57,7 @@ class AXPTests(unittest.TestCase):
             self.assertEqual(api.resource_discoverers[0]()[0].kind,"demo")
             cloud.emit(Event("demo.finished","demo")); self.assertEqual(len(seen),1)
             sent=[]; plugin=DiscordWebhookPlugin("discord_webhook",("project.deployed",),lambda url,payload:sent.append((url,payload)))
-            cloud.credentials.references["discord_webhook"]=__import__("localcloud").CredentialReference("discord_webhook","discord","environment","TEST_DISCORD_WEBHOOK")
+            cloud.credentials.references["discord_webhook"]=__import__("apx").CredentialReference("discord_webhook","discord","environment","TEST_DISCORD_WEBHOOK")
             plugin.setup(PluginAPI(cloud.actions,cloud.events,cloud,"discord"))
             with patch.dict("os.environ",{"TEST_DISCORD_WEBHOOK":"https://example.invalid/webhook"}): cloud.emit(Event("project.deployed","test",{"project":"demo"}))
             self.assertIn("project.deployed",sent[0][1]["content"])
@@ -69,14 +69,14 @@ class AXPTests(unittest.TestCase):
 
     def test_core_axp_catalogs(self):
         with tempfile.TemporaryDirectory() as directory:
-            cloud=LocalCloud(config(Path(directory)),plugins=False)
+            cloud=APX(config(Path(directory)),plugins=False)
             self.assertEqual(cloud.resources()[0].kind,"host")
             self.assertTrue(any(item.id=="python" for item in cloud.capabilities("test")))
             self.assertEqual(cloud.action_definitions()[0].to_dict()["type"],"action.definition")
 
     def test_init_and_doctor(self):
         with tempfile.TemporaryDirectory() as directory:
-            path=Path(directory)/"localcloud.toml"
+            path=Path(directory)/"apx.toml"
             result=initialize(path,interactive=False)
             self.assertTrue(path.exists()); self.assertEqual(result["local"]["os"],platform.system())
             report=diagnose(path)
@@ -86,7 +86,7 @@ class AXPTests(unittest.TestCase):
     def test_doctor_reports_unhealthy_optional_plugin(self):
         with tempfile.TemporaryDirectory() as directory:
             path=config(Path(directory))
-            with path.open("a") as stream: stream.write('\n[credentials.discord_webhook]\nsource="environment"\nreference="LOCALCLOUD_TEST_MISSING_WEBHOOK"\n[plugins.discord_webhook]\nenabled=true\ncredential="discord_webhook"\n')
+            with path.open("a") as stream: stream.write('\n[credentials.discord_webhook]\nsource="environment"\nreference="APX_TEST_MISSING_WEBHOOK"\n[plugins.discord_webhook]\nenabled=true\ncredential="discord_webhook"\n')
             with patch.dict("os.environ",{},clear=False):
                 report=diagnose(path)
             self.assertFalse(report["ok"])
@@ -94,7 +94,7 @@ class AXPTests(unittest.TestCase):
 
     def test_plugin_metadata_reports_missing_credential_reference(self):
         with tempfile.TemporaryDirectory() as directory:
-            cloud=LocalCloud(config(Path(directory)),plugins=False)
+            cloud=APX(config(Path(directory)),plugins=False)
             class NeedsCredential:
                 metadata=PluginMetadata("needs_credential","1.0.0","test",credentials=("provider_token",))
                 def setup(self,api): pass

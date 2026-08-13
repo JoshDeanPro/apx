@@ -23,7 +23,7 @@ from .state import SECURITY_STATES, StateStore
 from .system import connection_list, connection_status, scheduler_inspect, scheduler_list, tailscale_status
 
 
-class LocalCloud:
+class APX:
     """Python API. CLI and MCP both delegate to this exact action path."""
 
     def __init__(self, config: str | Path | None = None, *, plugins: bool = True):
@@ -204,7 +204,7 @@ class LocalCloud:
             decision=PolicyDecision(True,actor,request.action,"introspection action; always answerable",None)
         else:
             decision=self.policy.evaluate(actor,request.action,request.target,self.state.get(),self._mission_extra_allow(actor))
-        self.emit(Event(name="policy.allowed" if decision.allowed else "policy.denied",source="localcloud",subject={"actor":actor,"action":request.action,"delegated_by":auth_context.get("delegated_by")},data={"reason":decision.reason,"scope":decision.scope,"authentication_method":auth_context.get("authentication_method")},correlation_id=request.request_id))
+        self.emit(Event(name="policy.allowed" if decision.allowed else "policy.denied",source="apx",subject={"actor":actor,"action":request.action,"delegated_by":auth_context.get("delegated_by")},data={"reason":decision.reason,"scope":decision.scope,"authentication_method":auth_context.get("authentication_method")},correlation_id=request.request_id))
         if not decision.allowed:
             result=ActionResult(action=request.action,ok=False,error=StructuredError("permission_denied",decision.reason),request_id=request.request_id,target=request.target)
             return result
@@ -246,13 +246,13 @@ class LocalCloud:
 
     def state_set(self, name: str, reason: str = "", changed_by: str | None = None) -> dict[str, Any]:
         actor_id=changed_by or self.actors.resolve_default(); entry=self.state.set(name,reason,actor_id)
-        self.emit(Event("system.state_changed","localcloud",{"state":name},{"from":entry["from"],"to":name,"reason":reason,"actor":actor_id}))
-        if name in SECURITY_STATES: self.emit(Event(f"security.{name}_started","localcloud",{"state":name},{"reason":reason,"actor":actor_id}))
-        elif entry["from"]=="lockdown": self.emit(Event("security.lockdown_ended","localcloud",{"state":name},{"reason":reason,"actor":actor_id}))
+        self.emit(Event("system.state_changed","apx",{"state":name},{"from":entry["from"],"to":name,"reason":reason,"actor":actor_id}))
+        if name in SECURITY_STATES: self.emit(Event(f"security.{name}_started","apx",{"state":name},{"reason":reason,"actor":actor_id}))
+        elif entry["from"]=="lockdown": self.emit(Event("security.lockdown_ended","apx",{"state":name},{"reason":reason,"actor":actor_id}))
         return entry
 
     def break_glass(self, reason: str, requested_by: str | None = None) -> dict[str, Any]:
-        actor_id=requested_by or self.actors.resolve_default(); event=self.emit(Event("security.break_glass_started","localcloud",{"actor":actor_id},{"reason":reason}))
+        actor_id=requested_by or self.actors.resolve_default(); event=self.emit(Event("security.break_glass_started","apx",{"actor":actor_id},{"reason":reason}))
         return {"actor":actor_id,"reason":reason,"activated_at":event.occurred_at}
 
     # ---- Mission / Task / Work handler methods ----
@@ -292,7 +292,7 @@ class LocalCloud:
         try:
             request = self.missions.request_scope_change(mission, requested_by or self.actors.resolve_default(), reason, impact, affected_resources=affected_resources)
         except MissionError as error: raise ActionError(str(error)) from error
-        self.emit(Event("mission.scope_change_requested", "localcloud", {"mission": mission}, {"request": request["id"], "reason": reason}))
+        self.emit(Event("mission.scope_change_requested", "apx", {"mission": mission}, {"request": request["id"], "reason": reason}))
         return request
 
     def scope_change_resolve(self, request_id: str, status: str, resolution: str = "", resolved_by: str | None = None) -> dict[str, Any]:
@@ -349,9 +349,9 @@ class LocalCloud:
         try:
             context = self.auth.authenticate(method, credentials or {})
         except AuthenticationError as error:
-            self.emit(Event("identity.authentication_failed","localcloud",{"method":method},{"error":str(error)}))
+            self.emit(Event("identity.authentication_failed","apx",{"method":method},{"error":str(error)}))
             raise ActionError(str(error)) from error
-        self.emit(Event("identity.authenticated","localcloud",{"principal":context.principal_id},{"method":context.authentication_method,"issuer":context.issuer}))
+        self.emit(Event("identity.authenticated","apx",{"principal":context.principal_id},{"method":context.authentication_method,"issuer":context.issuer}))
         return context.to_dict()
 
     def identity_inspect(self, subject: str) -> dict[str, Any]:
@@ -380,8 +380,8 @@ class LocalCloud:
             record = self.enrollment.request(machine_id=machine_id, runtime=runtime, mode=mode, principal=principal,
                 requested_roles=requested_roles, requested_scopes=requested_scopes, device_fingerprint=device_fingerprint)
         except EnrollmentError as error: raise ActionError(str(error)) from error
-        self.emit(Event("identity.enrollment_requested","localcloud",{"request":record["id"]},{"machine_id":machine_id,"runtime":runtime,"mode":mode}))
-        if record["status"]=="approved": self.emit(Event("identity.enrollment_approved","localcloud",{"request":record["id"]},{"resolved_by":record["resolved_by"]}))
+        self.emit(Event("identity.enrollment_requested","apx",{"request":record["id"]},{"machine_id":machine_id,"runtime":runtime,"mode":mode}))
+        if record["status"]=="approved": self.emit(Event("identity.enrollment_approved","apx",{"request":record["id"]},{"resolved_by":record["resolved_by"]}))
         return record
 
     def identity_enrollment_status(self, request_id: str) -> dict[str, Any]:
@@ -395,13 +395,13 @@ class LocalCloud:
     def identity_enrollment_approve(self, request_id: str, approved_by: str | None = None, openpower_ref: str | None = None) -> dict[str, Any]:
         try: record = self.enrollment.approve(request_id, resolved_by=approved_by, openpower_ref=openpower_ref)
         except EnrollmentError as error: raise ActionError(str(error)) from error
-        self.emit(Event("identity.enrollment_approved","localcloud",{"request":request_id},{"resolved_by":approved_by}))
+        self.emit(Event("identity.enrollment_approved","apx",{"request":request_id},{"resolved_by":approved_by}))
         return record
 
     def identity_enrollment_deny(self, request_id: str, denied_by: str | None = None) -> dict[str, Any]:
         try: record = self.enrollment.deny(request_id, resolved_by=denied_by)
         except EnrollmentError as error: raise ActionError(str(error)) from error
-        self.emit(Event("identity.enrollment_denied","localcloud",{"request":request_id},{"resolved_by":denied_by}))
+        self.emit(Event("identity.enrollment_denied","apx",{"request":request_id},{"resolved_by":denied_by}))
         return record
 
     def pairing_create(self, ttl_seconds: int = 600) -> dict[str, Any]:
@@ -424,7 +424,7 @@ class LocalCloud:
     def credential_issue(self, principal: str, **fields: Any) -> dict[str, Any]:
         try: record = self.actor_credentials.issue(principal, **fields)
         except ActorCredentialError as error: raise ActionError(str(error)) from error
-        self.emit(Event("credential.created","localcloud",{"principal":principal,"credential":record["id"]},{"type":record["type"]}))
+        self.emit(Event("credential.created","apx",{"principal":principal,"credential":record["id"]},{"type":record["type"]}))
         return record
 
     def credential_inspect(self, credential_id: str) -> dict[str, Any]:
@@ -434,7 +434,7 @@ class LocalCloud:
     def credential_rotate(self, credential_id: str, fingerprint: str | None = None, secret_ref: str | None = None) -> dict[str, Any]:
         try: result = self.actor_credentials.rotate(credential_id, fingerprint=fingerprint, secret_ref=secret_ref)
         except ActorCredentialError as error: raise ActionError(str(error)) from error
-        self.emit(Event("credential.rotated","localcloud",{"principal":result["current"]["principal"],"credential":result["current"]["id"]},{"replaces":credential_id}))
+        self.emit(Event("credential.rotated","apx",{"principal":result["current"]["principal"],"credential":result["current"]["id"]},{"replaces":credential_id}))
         return result
 
     def credential_confirm_rotation(self, previous_credential_id: str) -> dict[str, Any]:
@@ -444,7 +444,7 @@ class LocalCloud:
     def credential_revoke(self, credential_id: str, revoked_by: str | None = None) -> dict[str, Any]:
         try: record = self.actor_credentials.revoke(credential_id)
         except ActorCredentialError as error: raise ActionError(str(error)) from error
-        self.emit(Event("credential.revoked","localcloud",{"principal":record["principal"],"credential":credential_id},{"revoked_by":revoked_by}))
+        self.emit(Event("credential.revoked","apx",{"principal":record["principal"],"credential":credential_id},{"revoked_by":revoked_by}))
         return record
 
     def _emit_for_result(self, request: ActionRequest, result: ActionResult) -> None:
@@ -458,7 +458,7 @@ class LocalCloud:
             "finding.create":"finding.created","decision.record":"decision.recorded","blocker.create":"blocker.created","blocker.resolve":"blocker.resolved","evidence.attach":"evidence.attached",
             "identity.link":"identity.linked","identity.unlink":"identity.unlinked",
         }.get(request.action,"action.completed" if result.ok else "action.failed")
-        self.emit(Event(name=event_name,source="localcloud",subject=request.target,data={"action":request.action,"ok":result.ok,"error":result.error.to_dict() if result.error else None},correlation_id=request.request_id))
+        self.emit(Event(name=event_name,source="apx",subject=request.target,data={"action":request.action,"ok":result.ok,"error":result.error.to_dict() if result.error else None},correlation_id=request.request_id))
 
     def emit(self, event: Event) -> Event: return self.events.emit(event)
 

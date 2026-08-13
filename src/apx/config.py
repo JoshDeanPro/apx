@@ -8,17 +8,17 @@ from .models import Host, Project, ProjectLocation
 
 
 def default_config_path() -> Path:
-    explicit = os.environ.get("LOCALCLOUD_CONFIG")
+    explicit = os.environ.get("APX_CONFIG")
     if explicit:
         return Path(explicit).expanduser()
-    candidates = [Path.cwd() / "localcloud.toml", Path.home() / ".config/localcloud/config.toml"]
+    candidates = [Path.cwd() / "apx.toml", Path.home() / ".config/apx/config.toml"]
     return next((path for path in candidates if path.exists()), candidates[-1])
 
 
 def load_document(path: str | Path | None = None) -> tuple[Path, dict]:
     source = Path(path).expanduser() if path else default_config_path()
     if not source.exists():
-        raise FileNotFoundError(f"LOCALCLOUD configuration not found: {source}")
+        raise FileNotFoundError(f"APX configuration not found: {source}")
     return source,tomllib.loads(source.read_text(encoding="utf-8"))
 
 

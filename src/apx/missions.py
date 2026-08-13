@@ -153,7 +153,7 @@ class MissionStore:
         return task
 
     def propose_tasks(self, mission_id: str, proposals: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """An agent's derived plan, stored verbatim -- LocalCloud does not invent Tasks itself."""
+        """An agent's derived plan, stored verbatim -- APX does not invent Tasks itself."""
         return [self.create_task(mission_id, **proposal) for proposal in proposals]
 
     def get_task(self, task_id: str) -> dict[str, Any]:

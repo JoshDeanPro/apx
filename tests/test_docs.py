@@ -4,16 +4,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from localcloud import LocalCloud
-from localcloud.docs import generate
+from apx import APX
+from apx.docs import generate
 
 
 def config(tmp_path: Path) -> Path:
-    path=tmp_path/"localcloud.toml"
+    path=tmp_path/"apx.toml"
     path.write_text('''version=1
 [credentials.token]
 source="environment"
-reference="LOCALCLOUD_TEST_TOKEN"
+reference="APX_TEST_TOKEN"
 groups=["demo"]
 
 [[hosts]]
@@ -70,12 +70,12 @@ action="mission.*"
 class DocsTests(unittest.TestCase):
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory()
-        self.cloud=LocalCloud(config(Path(self.temp.name)),plugins=False)
+        self.cloud=APX(config(Path(self.temp.name)),plugins=False)
 
     def tearDown(self): self.temp.cleanup()
 
     def test_human_audience_covers_operations(self):
-        with patch.dict("os.environ",{"LOCALCLOUD_TEST_TOKEN":"super-secret-value"}):
+        with patch.dict("os.environ",{"APX_TEST_TOKEN":"super-secret-value"}):
             text=generate(self.cloud,"demo","human")
         self.assertIn("demo-api",text); self.assertIn("demo.example",text)
         self.assertIn("scripts/deploy.sh",text)
@@ -83,14 +83,14 @@ class DocsTests(unittest.TestCase):
         self.assertNotIn("super-secret-value",text)
 
     def test_ai_audience_lists_allowed_actions_and_production_location(self):
-        with patch.dict("os.environ",{"LOCALCLOUD_TEST_TOKEN":"super-secret-value"}):
+        with patch.dict("os.environ",{"APX_TEST_TOKEN":"super-secret-value"}):
             text=generate(self.cloud,"demo","ai")
         self.assertIn("service.restart",text)
         self.assertIn("vps",text)
         self.assertNotIn("super-secret-value",text)
 
     def test_machine_audience_is_valid_deterministic_json(self):
-        with patch.dict("os.environ",{"LOCALCLOUD_TEST_TOKEN":"super-secret-value"}):
+        with patch.dict("os.environ",{"APX_TEST_TOKEN":"super-secret-value"}):
             first=generate(self.cloud,"demo","machine")
             second=generate(self.cloud,"demo","machine")
         self.assertEqual(first,second)

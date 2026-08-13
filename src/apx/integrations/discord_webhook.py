@@ -39,8 +39,8 @@ class DiscordWebhookPlugin:
         for pattern in self.patterns: api.subscribe(pattern,self.on_event)
 
     def on_event(self, event: Event) -> None:
-        subject=", ".join(f"{key}={value}" for key,value in event.subject.items()) or "localcloud"
-        content=f"LOCALCLOUD: {event.name} ({subject})"
+        subject=", ".join(f"{key}={value}" for key,value in event.subject.items()) or "apx"
+        content=f"APX: {event.name} ({subject})"
         url=self._api.credential(self.credential_id)
         if not url.startswith("https://"): raise ValueError("Discord webhook URL must use HTTPS")
         payload={"content":content[:2000],"allowed_mentions":{"parse":[]}}
