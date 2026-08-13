@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 from .base import Adapter, AdapterMetadata
 from .http import HTTPAdapter, HTTPResponse
 from .mcp import MCPStdioAdapter

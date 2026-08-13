@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Scoped allow/deny policy engine evaluated at the AXP execution path.
 
 Explicit deny always wins. Absent any configured roles, the engine is a no-op

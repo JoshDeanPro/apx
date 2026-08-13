@@ -1,13 +1,14 @@
+# SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
 
 import json
 import shutil
-import subprocess
 
 from ..actions import ActionError, RegisteredAction
 from ..axp import Resource, VersionInfo
 from ..plugins import PluginMetadata
 from .databases.aws import from_db_instance
+from ..process import ProcessError,ProcessTimeout,run
 
 class Plugin:
     name="aws"
@@ -22,8 +23,9 @@ class Plugin:
             if self.config.get("profile"): command.extend(["--profile",self.config["profile"]])
             if self.config.get("region"): command.extend(["--region",self.config["region"]])
             command.extend(["rds","describe-db-instances","--output","json","--no-cli-pager"])
-            result=subprocess.run(command,capture_output=True,text=True,timeout=30)
-            if result.returncode: raise ActionError("AWS RDS discovery failed")
+            try: result=run(command,timeout=30)
+            except (ProcessError,ProcessTimeout) as error: raise ActionError(str(error)) from error
+            if not result.ok: raise ActionError("AWS RDS discovery failed")
             databases=[from_db_instance(value,groups=self.config.get("groups",()),tags=self.config.get("tags",())).to_resource().to_dict() for value in json.loads(result.stdout).get("DBInstances",[])]
             return {"provider":"aws","api_family":"RDS","api_version":"2014-10-31","databases":databases}
         api.register_action(RegisteredAction("aws.database.list","List AWS RDS/Aurora database endpoints",listing,{"type":"object","properties":{},"additionalProperties":False}))

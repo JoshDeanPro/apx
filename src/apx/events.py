@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,6 +6,7 @@ from fnmatch import fnmatchcase
 from typing import Callable
 
 from .axp import Event
+from .observability import event_log
 
 EventListener = Callable[[Event], None]
 
@@ -31,6 +33,7 @@ class EventRouter:
 
     def emit(self, event: Event) -> Event:
         self._history.append(event)
+        event_log(event.name,event.source,event.correlation_id)
         for subscription in tuple(self._subscriptions):
             if fnmatchcase(event.name,subscription.pattern):
                 try: subscription.listener(event)
@@ -42,4 +45,3 @@ class EventRouter:
     def history(self) -> tuple[Event,...]: return tuple(self._history)
     @property
     def errors(self) -> tuple[dict[str,str],...]: return tuple(self._errors)
-

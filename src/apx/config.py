@@ -1,8 +1,11 @@
+# SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
 
 import os
 import tomllib
 from pathlib import Path
+
+from platformdirs import user_config_path
 
 from .models import Host, Project, ProjectLocation
 
@@ -11,7 +14,7 @@ def default_config_path() -> Path:
     explicit = os.environ.get("APX_CONFIG")
     if explicit:
         return Path(explicit).expanduser()
-    candidates = [Path.cwd() / "apx.toml", Path.home() / ".config/apx/config.toml"]
+    candidates = [Path.cwd() / "apx.toml", Path.home()/".config/apx/config.toml", user_config_path("apx") / "config.toml"]
     return next((path for path in candidates if path.exists()), candidates[-1])
 
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Read-only host technology, connectivity, service-manager, and scheduler discovery."""
 from __future__ import annotations
 

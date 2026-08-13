@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Authentication: who is calling. Kept strictly separate from authorization (policy.py):
 what an authenticated principal may do is decided entirely by PolicyEngine, using only the
 local actor-id -> role mapping -- an authentication method never grants authority itself.

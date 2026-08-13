@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Small HTTP provider plugin primitives; provider behavior stays outside Core."""
 from __future__ import annotations
 

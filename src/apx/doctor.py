@@ -1,22 +1,33 @@
+# SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import os
+import shutil
+import sys
 
 from .cloud import APX
 from .config import default_config_path
 from .protocol import MCPServer
 from .system import connection_status, scheduler_list, tailscale_status
+from .foundation import inspect_foundation
+from . import __version__
 
 
 def diagnose(config: str | Path | None = None) -> dict[str,Any]:
     path=Path(config).expanduser() if config else default_config_path()
-    report={"ok":True,"config":{"path":str(path),"ok":False},"hosts":[],"credentials":[],"connections":[],"plugins":[],"integrations":[],"databases":[],"mcp":{},"problems":[]}
+    foundation=inspect_foundation()
+    invoked=Path(sys.argv[0]).resolve() if Path(sys.argv[0]).exists() else None
+    inferred_method="managed-venv" if "openpower/runtimes" in str(Path(sys.prefix)) else "development_or_unknown"
+    report={"ok":True,"status":"healthy","versions":{"apx":__version__},"runtime":{"python":sys.version.split()[0],"executable":sys.executable,"isolated":sys.prefix!=getattr(sys,"base_prefix",sys.prefix),"installation_method":os.environ.get("OPENPOWER_INSTALL_METHOD",inferred_method)},"path":{"apx":shutil.which("apx") or (str(invoked) if invoked else None)},"foundation":foundation,"config":{"path":str(path),"ok":False},"state_directory":str(path.parent),"hosts":[],"credentials":[],"connections":[],"plugins":[],"providers":[],"registry":{},"integrations":[],"databases":[],"mcp":{},"update":{"status":"unknown","note":"release metadata was not requested"},"problems":[],"fixes":[]}
     try:
         cloud=APX(path)
         report["config"]["ok"]=True
     except Exception as error:
-        report["ok"]=False; report["config"]["error"]=str(error); report["problems"].append(str(error)); return report
+        report["ok"]=False; report["status"]="misconfigured"; report["config"]["error"]=str(error); report["problems"].append(str(error)); report["fixes"].append(f"Create or repair {path} with `apx init --output {path}`."); return report
+    report["registry"]={"status":"healthy","actions":len(cloud.actions.list())}
+    report["providers"]=[provider.health().to_dict() for provider in cloud.providers.values()]
     for host in cloud.hosts.values():
         item={"name":host.name,"transport":host.transport,"target":host.target,"reachable":False,"capabilities":[],"missing_optional":[]}
         try:
@@ -42,7 +53,12 @@ def diagnose(config: str | Path | None = None) -> dict[str,Any]:
     report["connections"]=cloud.connection_health
     for connection in report["connections"]:
         if not connection["ok"]: report["ok"]=False; report["problems"].append(f"connection {connection['id']}: {connection['error']}")
-    report["credentials"]=cloud.credentials.health()
+    report["credentials"]=[]
+    for credential_id in cloud.credentials.references:
+        try:
+            value=cloud.secrets.health(credential_id)
+            report["credentials"].append({"id":credential_id,"available":bool(value.get("available")),"status":"healthy" if value.get("available") else "unavailable","source":value.get("source"),"lifecycle":value.get("lifecycle")})
+        except Exception as error: report["credentials"].append({"id":credential_id,"available":False,"status":"misconfigured","error":str(error)})
     for credential in report["credentials"]:
         if not credential["available"]:
             report["ok"]=False
@@ -58,4 +74,11 @@ def diagnose(config: str | Path | None = None) -> dict[str,Any]:
         report["mcp"]={"available":False,"error":str(error)}; report["ok"]=False; report["problems"].append(f"MCP: {error}")
     if cloud.events.errors:
         report["ok"]=False; report["problems"].extend(f"event listener {e['owner']}: {e['error']}" for e in cloud.events.errors)
+    required_bad=[item for item in foundation["components"] if item["level"]=="foundation" and item["status"]!="healthy"]
+    if required_bad:
+        report["ok"]=False; report["status"]="misconfigured"
+        report["problems"].extend(f"foundation {item['id']}: {item['detail']}" for item in required_bad)
+    elif not report["ok"]: report["status"]="degraded"
+    optional=[item["id"] for item in foundation["components"] if item["level"]=="optional" and item["status"]=="unavailable"]
+    if optional: report["optional_missing"]=optional
     return report

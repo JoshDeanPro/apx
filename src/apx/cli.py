@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
 
 import argparse
@@ -6,13 +7,27 @@ import sys
 
 from .cloud import APX
 from .protocol import MCPServer
+from . import __version__
 
 
 def output(value: object) -> None: print(json.dumps(value,indent=2,ensure_ascii=False))
 
 
+def result_exit(result) -> int:
+    if result.ok: return 0
+    code=result.error.code if result.error else ""
+    if result.status=="authorization_required": return 6
+    if code in {"invalid_input","action.not_found"}: return 2
+    if code=="permission_denied": return 3
+    if code in {"capability_unavailable","credential_revoked"}: return 4
+    if code in {"connection_failure","timeout"}: return 5
+    if code in {"configuration_error","authentication_required"}: return 7
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser=argparse.ArgumentParser(prog="apx",description="Use your computers and services together.")
+    parser.add_argument("--version",action="version",version=f"APX {__version__}")
     parser.add_argument("--config",help="TOML configuration path")
     parser.add_argument("--yes",action="store_true",help="confirm destructive actions")
     parser.add_argument("--actor",help="acting identity, e.g. agent:claude:mac (defaults to the configured default_actor)")
@@ -120,7 +135,8 @@ def main(argv: list[str] | None = None) -> int:
             if not isinstance(inputs,dict): raise ValueError("--input must be a JSON object")
             action=cloud.actions.get(args.action)
             if action.destructive and not args.yes: output({"action":args.action,"ok":False,"error":"destructive action requires --yes"}); return 2
-            result=cloud.run(args.action,actor=args.actor,**inputs); output(result.to_dict()); return 0 if result.ok else 1
+            result=cloud.run(args.action,actor=args.actor,**inputs); output(result.to_dict()); return result_exit(result)
+        except (json.JSONDecodeError,ValueError) as error: output({"action":args.action,"ok":False,"error":str(error)}); return 2
         except Exception as error: output({"action":args.action,"ok":False,"error":str(error)}); return 1
     if args.command=="mcp": return MCPServer(cloud,actor=args.actor).serve()
     if args.command=="actions":

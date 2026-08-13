@@ -29,6 +29,23 @@ explicitly-optional, unconfigured-by-default auth adapter
 (`auth_openpower.py`) that verifies OpenPower-issued identity tokens — the
 same generic `AuthContext` shape any other identity provider would produce.
 
+## Open source & governance
+
+APX is open-source software (MPL-2.0, see [LICENSE](LICENSE)) stewarded
+by the official APX Project. Community contributions, integrations,
+Actions, Providers, and forks are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md). The APX and OpenPower names and
+official compatibility designations are governed separately from the
+source-code license — see [TRADEMARKS.md](TRADEMARKS.md) and
+[GOVERNANCE.md](GOVERNANCE.md).
+
+Further reading: [GOVERNANCE.md](GOVERNANCE.md) ·
+[CONTRIBUTING.md](CONTRIBUTING.md) · [MAINTAINERS.md](MAINTAINERS.md) ·
+[SECURITY.md](SECURITY.md) · [CONFORMANCE.md](CONFORMANCE.md) ·
+[TRADEMARKS.md](TRADEMARKS.md) · [AI_POLICY.md](AI_POLICY.md) ·
+[APX-ENHANCEMENTS.md](APX-ENHANCEMENTS.md) · [CLA.md](CLA.md) (draft) ·
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [NOTICE](NOTICE)
+
 ## Working now / deferred
 
 Working now: the Action Registry and self-description (`apx actions`),
@@ -210,6 +227,8 @@ discovered host software
 ```
 
 APX also includes transport-neutral Action Providers: typed manifests at the conventional HTTP discovery path `/.well-known/apx`, secure prepare/authorize/execute/verify/receipt lifecycles, a decorator-based Python provider SDK, an optional framework-neutral HTTP adapter, explicit remote discovery, Commerce reciprocity conformance, and a runnable local subscription provider. See [Action Providers](docs/action-providers.md).
+
+The runtime foundation is three deliberately justified packages plus capability detection for the host’s existing Git, SSH, rsync, ripgrep, curl, and TLS environment. APX uses one safe HTTP client, one bounded subprocess boundary, and atomic locked state writes. See [Foundation and dependency policy](docs/foundation.md).
 
 - `models.py`: configured Hosts, Projects, and project locations.
 - `axp.py`: typed AXP 0.1 exchange structures.

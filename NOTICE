@@ -1,0 +1,17 @@
+APX
+Copyright (c) 2026 Ethan Gegos
+
+This product includes software developed as part of the APX Project
+(https://openpower.one/apx).
+
+Licensed under the Mozilla Public License, Version 2.0 (MPL-2.0). See
+LICENSE for the full license text.
+
+"APX" and "OpenPower" are claimed marks of their respective owner. See
+TRADEMARKS.md. Use of these names is governed separately from the
+MPL-2.0 license that covers the source code itself.
+
+This software depends on third-party packages (see pyproject.toml),
+each of which remains under its own respective license. Those
+third-party packages are not part of APX's Covered Software and their
+copyright is not claimed here.

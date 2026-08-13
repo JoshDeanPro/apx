@@ -20,6 +20,7 @@ from apx.protocol import MCPServer
 from apx.service_managers import manager_for
 from apx.system import connection_status, scheduler_list, tailscale_status
 from apx.transports import CommandResult, FallbackTransport
+from apx.http import HTTPResult
 
 
 def write_config(root: Path, extra: str = "") -> Path:
@@ -40,6 +41,9 @@ class FakeHTTPResponse:
     headers={"Content-Type":"application/json"}
     def __init__(self,value): self.value=json.dumps(value).encode()
     def read(self,size): return self.value[:size]
+
+
+def mocked_http(value): return patch("apx.http.HTTPClient.request",return_value=HTTPResult(200,{"Content-Type":"application/json"},json.dumps(value).encode()))
 
 
 class IntegrationTests(unittest.TestCase):
@@ -144,13 +148,13 @@ class IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{"LC_CF_TOKEN":"fake-token"}):
             extra='\n[credentials.cf]\nsource="environment"\nreference="LC_CF_TOKEN"\n[plugins.cloudflare]\nenabled=true\ncredential="cf"\n'
             path=write_config(Path(directory),extra)
-            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse({"success":True,"result":[]})):
+            with mocked_http({"success":True,"result":[]}):
                 cloud=APX(path)
                 self.assertTrue(cloud.run("cloudflare.zone.list").ok)
                 server=MCPServer(cloud); self.assertIn("cloudflare_zone_list",{tool["name"] for tool in server.tools()})
                 response=server.dispatch({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cloudflare_zone_list","arguments":{}}})
                 self.assertTrue(response["result"]["structuredContent"]["ok"])
-            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse({"success":True,"result":[]})),patch("builtins.print") as printed:
+            with mocked_http({"success":True,"result":[]}),patch("builtins.print") as printed:
                 self.assertEqual(cli_main(["--config",str(path),"run","cloudflare.zone.list"]),0)
                 self.assertIn('"action": "cloudflare.zone.list"',printed.call_args.args[0])
 
@@ -161,11 +165,11 @@ class IntegrationTests(unittest.TestCase):
                 '\n[credentials.dc]\nsource="environment"\nreference="LC_DC_TOKEN"\n[plugins.discord]\nenabled=true\nbot_credential="dc"\n'
             )
             path=write_config(Path(directory),extra)
-            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse({"success":True,"result":[{"id":"setting-1"}]})):
+            with mocked_http({"success":True,"result":[{"id":"setting-1"}]}):
                 cloud=APX(path)
                 result=cloud.run("cloudflare.setting.list",zone_id="zone-1")
                 self.assertTrue(result.ok); self.assertEqual(result.result["data"],[{"id":"setting-1"}])
-            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse([{"id":"role-1"}])):
+            with mocked_http([{"id":"role-1"}]):
                 cloud=APX(path)
                 result=cloud.run("discord.role.list",guild_id="guild-1")
                 self.assertTrue(result.ok); self.assertEqual(result.result["data"],[{"id":"role-1"}])
@@ -174,7 +178,7 @@ class IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{"LC_PADDLE_TOKEN":"fake-token"}):
             extra='\n[credentials.paddle]\nsource="environment"\nreference="LC_PADDLE_TOKEN"\n[plugins.paddle]\nenabled=true\ncredential="paddle"\n'
             path=write_config(Path(directory),extra)
-            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse({"data":[{"id":"cus_01"}]})):
+            with mocked_http({"data":[{"id":"cus_01"}]}):
                 cloud=APX(path)
                 result=cloud.run("paddle.customer.list")
                 self.assertTrue(result.ok); self.assertEqual(result.result["data"],[{"id":"cus_01"}])
@@ -183,11 +187,11 @@ class IntegrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{"LC_PM_TOKEN":"fake-token"}):
             extra='\n[credentials.pm]\nsource="environment"\nreference="LC_PM_TOKEN"\n[plugins.purelymail]\nenabled=true\ncredential="pm"\n'
             path=write_config(Path(directory),extra)
-            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse({"type":"success","result":{"domains":[]}})):
+            with mocked_http({"type":"success","result":{"domains":[]}}):
                 cloud=APX(path)
                 result=cloud.run("purelymail.domain.list")
                 self.assertTrue(result.ok); self.assertEqual(result.result,{"domains":[]})
-            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse({"type":"error","message":"invalid token"})):
+            with mocked_http({"type":"error","message":"invalid token"}):
                 cloud=APX(path)
                 result=cloud.run("purelymail.domain.list")
                 self.assertFalse(result.ok); self.assertIn("invalid token",result.error.message)

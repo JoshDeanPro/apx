@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Service-manager feature contracts; managers retain their native semantics."""
 from __future__ import annotations
 

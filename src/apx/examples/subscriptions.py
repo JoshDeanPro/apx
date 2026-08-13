@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """In-memory reference provider used by documentation, demos, and conformance tests."""
 from __future__ import annotations
 

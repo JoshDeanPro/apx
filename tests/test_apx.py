@@ -55,7 +55,7 @@ class APXTests(unittest.TestCase):
         # this must be true for every action, at the one shared execution point.
         result=self.cloud.run("host.info",host="test",bogus_extra_field="oops")
         self.assertFalse(result.ok)
-        self.assertEqual(result.error.code,"action.failed")
+        self.assertEqual(result.error.code,"invalid_input")
         self.assertIn("bogus_extra_field",result.error.message)
 
 

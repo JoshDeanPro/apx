@@ -1,17 +1,20 @@
+# SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
 
 import json
 import os
 import re
-import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable
+
+from jsonschema.validators import Draft202012Validator
 
 from .discovery import inspect_host
 from .axp import ActionDefinition
 from .models import Host, Project
 from .service_managers import manager_for
 from .transports import transport_for
+from .process import ProcessError,ProcessTimeout,run
 
 
 class ActionError(RuntimeError): pass
@@ -80,6 +83,8 @@ class ActionRegistry:
     def __init__(self): self._actions: dict[str, RegisteredAction] = {}; self._aliases: dict[str,str] = {}
     def register(self, action: RegisteredAction) -> None:
         if action.name in self._actions: raise ValueError(f"duplicate action {action.name}")
+        Draft202012Validator.check_schema(action.schema)
+        if action.output_schema is not None: Draft202012Validator.check_schema(action.output_schema)
         self._actions[action.name] = action
     def get(self, name: str) -> RegisteredAction:
         name=self._aliases.get(name,name)
@@ -195,8 +200,9 @@ class CoreActions:
         def spec(host: Host,path: str) -> str: return path if host.transport=="local" else f"{host.target}:{path}"
         command=["scp","-3","-p",spec(src,source),spec(dst,destination)] if src.transport==dst.transport=="ssh" else ["scp","-p",spec(src,source),spec(dst,destination)]
         if src.transport==dst.transport=="local": command=["cp","-p",source,destination]
-        r=subprocess.run(command,capture_output=True,text=True,timeout=120)
-        if r.returncode: raise ActionError(r.stderr.strip() or "file copy failed")
+        try: r=run(command,timeout=120)
+        except (ProcessError,ProcessTimeout) as error: raise ActionError(str(error)) from error
+        if not r.ok: raise ActionError(r.stderr.strip() or "file copy failed")
         return {"source":{"host":source_host,"path":source},"destination":{"host":destination_host,"path":destination},"transport":"local" if command[0]=="cp" else "scp"}
 
     def file_sync(self, source_host: str, source: str, destination_host: str, destination: str, dry_run: bool = True) -> dict[str, Any]:
@@ -206,8 +212,9 @@ class CoreActions:
         if src.transport==dst.transport=="ssh": raise ActionError("direct remote-to-remote rsync is not supported; use file.copy or sync through a local host")
         spec=lambda h,p: p if h.transport=="local" else f"{h.target}:{p}"
         command=["rsync","-a","--itemize-changes"] + (["--dry-run"] if dry_run else []) + [spec(src,source),spec(dst,destination)]
-        r=subprocess.run(command,capture_output=True,text=True,timeout=300)
-        if r.returncode: raise ActionError(r.stderr.strip() or "file sync failed")
+        try: r=run(command,timeout=300)
+        except (ProcessError,ProcessTimeout) as error: raise ActionError(str(error)) from error
+        if not r.ok: raise ActionError(r.stderr.strip() or "file sync failed")
         return {"dry_run":dry_run,"changes":r.stdout.splitlines()}
 
     def host_shutdown(self, host: str) -> dict[str, Any]:

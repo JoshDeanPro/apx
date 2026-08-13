@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """AXP actor identity: who or what is calling an action."""
 from __future__ import annotations
 
@@ -5,6 +6,7 @@ import json
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
+from .files import atomic_write
 
 from .axp import ACTOR_KINDS
 
@@ -96,7 +98,7 @@ class IdentityLinkStore:
         try: return json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError): return {}
 
-    def _save(self) -> None: self.path.write_text(json.dumps(self._data, indent=2) + "\n", encoding="utf-8")
+    def _save(self) -> None: atomic_write(self.path,json.dumps(self._data, indent=2) + "\n")
 
     def apply(self, registry: ActorRegistry) -> None:
         for actor_id, openpower_identity in self._data.items():

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Purelymail is POST-only and reports failure in the response body rather
 than the HTTP status, so every call here is unwrapped before it's returned
 -- doesn't fit HTTPProviderPlugin's GET/path-substitution ProviderAction
