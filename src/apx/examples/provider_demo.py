@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Actual end-to-end Action Provider demonstration: `python -m apx.examples.provider_demo`."""
 from __future__ import annotations
 

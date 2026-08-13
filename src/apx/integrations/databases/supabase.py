@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 from .models import DatabaseResource
 
 def from_project(project: dict, *, groups=(), tags=()) -> DatabaseResource:

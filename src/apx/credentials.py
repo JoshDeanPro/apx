@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Replaceable credential references. Resolved values never leave this module."""
 from __future__ import annotations
 
@@ -6,12 +7,12 @@ import os
 import re
 import subprocess
 import sys
-import urllib.error
-import urllib.request
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Protocol
 from uuid import uuid4
+from .files import atomic_write
+from .http import HTTPClient,HTTPFailure
 
 REDACTED="<redacted>"
 SENSITIVE_KEYS=("token","secret","password","passwd","passphrase","api_key","apikey","private_key","client_secret","access_token","refresh_token","authorization","credential","cookie")
@@ -185,10 +186,9 @@ class OpenBaoBackend:
         return token
 
     def _http_request(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
-        request=urllib.request.Request(f"{self.base_url}{path}",method=method,headers={"X-Vault-Token":self._token()},data=json.dumps(body).encode() if body is not None else None)
         try:
-            with urllib.request.urlopen(request,timeout=10) as response: return json.loads(response.read() or b"{}")
-        except urllib.error.URLError as error: raise SecretBackendError(f"OpenBao request failed: {error}") from error
+            return HTTPClient().request(method,f"{self.base_url}{path}",headers={"X-Vault-Token":self._token()},json=body,timeout=10,idempotent=method=="GET").json() or {}
+        except HTTPFailure as error: raise SecretBackendError(f"OpenBao request failed: {error}") from error
 
     def status(self) -> dict[str, Any]: return self._request("GET","/v1/sys/health")
 
@@ -330,7 +330,7 @@ class ActorCredentialStore:
             data=json.loads(self.path.read_text(encoding="utf-8")); data.setdefault("credentials",{}); return data
         except (OSError,json.JSONDecodeError): return {"credentials":{}}
 
-    def _save(self) -> None: self.path.write_text(json.dumps(self._data,indent=2)+"\n",encoding="utf-8")
+    def _save(self) -> None: atomic_write(self.path,json.dumps(self._data,indent=2)+"\n")
 
     def _apply_expiry(self, record: dict[str,Any]) -> dict[str,Any]:
         if record["state"]=="active" and record["expires"]:

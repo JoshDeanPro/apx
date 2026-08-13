@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 from .provider import HTTPProviderPlugin, ProviderAction
 from ..axp import VersionInfo
 

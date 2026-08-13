@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
 
 import secrets
@@ -7,6 +8,9 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from jsonschema import ValidationError
+from jsonschema.validators import Draft202012Validator
 
 from .actions import ActionError, CoreActions, RegisteredAction, build_registry
 from .auth import AuthenticationError, AuthManager
@@ -301,6 +305,15 @@ class APX:
             return ActionResult(request.action,False,error=StructuredError("credential_revoked","actor credential is revoked"),request_id=request.request_id,target=request.target,status="failed")
         if definition.provider and definition._risk()!="read" and request.auth_context is None:
             return ActionResult(request.action,False,error=StructuredError("authentication_required","consequential provider action requires authenticated actor context"),request_id=request.request_id,target=request.target,status="authorization_required")
+        effective_input={key:value for key,value in request.input.items() if value is not None or key in definition.schema.get("required",())}
+        try: Draft202012Validator(definition.schema).validate(effective_input)
+        except ValidationError as error:
+            path=list(error.absolute_path)
+            message=f"input at {'.'.join(map(str,path)) or '<root>'} failed JSON Schema rule {error.validator}"
+            if error.validator=="additionalProperties":
+                unexpected=sorted(set(effective_input)-set(definition.schema.get("properties",{})))
+                if unexpected: message+=f" (unexpected fields: {', '.join(unexpected)})"
+            return ActionResult(request.action,False,error=StructuredError("invalid_input",message,{"path":path,"rule":error.validator}),request_id=request.request_id,target=request.target,status="failed")
         # Confirmation gate: opt-in per action (definition.confirmation defaults to "none",
         # see RegisteredAction) so this can never retroactively block an existing action
         # nothing has started sending confirmation for. A supplied confirmation must name
@@ -330,11 +343,12 @@ class APX:
         if required!="none": self.emit(Event("action.authorized",definition.provider or "apx",{"actor":actor,"action":request.action},{"confirmation":required},correlation_id=request.request_id))
         try:
             self.emit(Event("action.started",definition.provider or "apx",{"actor":actor,"action":request.action},{},correlation_id=request.request_id))
-            raw = definition.handler(**request.input)
+            raw = definition.handler(**effective_input)
             # secret.reveal is the one sanctioned path for a raw value; policy already gated it above.
             data = raw if request.action=="secret.reveal" else self.credentials.redact(raw)
+            if definition.output_schema is not None: Draft202012Validator(definition.output_schema).validate(data)
             verification="unverified"
-            if definition.verify_handler: verification="verified" if definition.verify_handler(data,**request.input) else "failed"
+            if definition.verify_handler: verification="verified" if definition.verify_handler(data,**effective_input) else "failed"
             elif definition.read_only: verification="not_applicable"
             receipt=None
             if definition.provider or required!="none" or definition.destructive:
@@ -576,7 +590,9 @@ class APX:
             "finding.create":"finding.created","decision.record":"decision.recorded","blocker.create":"blocker.created","blocker.resolve":"blocker.resolved","evidence.attach":"evidence.attached",
             "identity.link":"identity.linked","identity.unlink":"identity.unlinked",
         }.get(request.action,"action.completed" if result.ok else "action.failed")
-        self.emit(Event(name=event_name,source="apx",subject=request.target,data={"action":request.action,"ok":result.ok,"error":result.error.to_dict() if result.error else None},correlation_id=request.request_id))
+        try: duration_ms=max(0,int((datetime.now(timezone.utc)-datetime.fromisoformat(request.created_at.replace("Z","+00:00"))).total_seconds()*1000))
+        except ValueError: duration_ms=None
+        self.emit(Event(name=event_name,source="apx",subject=request.target,data={"action":request.action,"actor":request.actor,"provider":self.actions.get(request.action).provider if request.action in {a.name for a in self.actions.list()} else None,"status":result.status,"duration_ms":duration_ms,"receipt_id":result.receipt.receipt_id if result.receipt else None,"ok":result.ok,"error":result.error.to_dict() if result.error else None},correlation_id=request.request_id))
 
     def emit(self, event: Event) -> Event: return self.events.emit(event)
 

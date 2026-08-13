@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Typed, transport-neutral structures for Action Exchange Protocol 0.1."""
 from __future__ import annotations
 

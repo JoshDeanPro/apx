@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Project -> Mission -> Tasks -> AXP Actions -> Evidence.
 
 AXP gives an actor actions. Missions make sure those actions have a purpose: every
@@ -6,7 +7,7 @@ once its evidence has been checked against its own success criteria -- not merel
 because an actor believes the work is done.
 
 Storage mirrors GroupStore/StateStore exactly: one JSON overlay file next to the
-config, whole-file load/save, no locking, no migrations, no database.
+config, atomically replaced under a small advisory lock, no migrations or database.
 """
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from .files import atomic_write
 
 STATUSES = ("proposed", "ready", "active", "blocked", "completed", "verified", "cancelled")
 FINDING_CATEGORIES = ("informational", "relevant", "blocker", "security", "future_work")
@@ -64,7 +66,7 @@ class MissionStore:
         except (OSError, json.JSONDecodeError):
             return empty
 
-    def _save(self) -> None: self.path.write_text(json.dumps(self._data, indent=2) + "\n", encoding="utf-8")
+    def _save(self) -> None: atomic_write(self.path,json.dumps(self._data, indent=2) + "\n")
 
     # ---- Mission ----
 

@@ -1,9 +1,9 @@
+# SPDX-License-Identifier: MPL-2.0
 """Transport-neutral APX Action Provider SDK and conformance helpers."""
 from __future__ import annotations
 
 import json
 import urllib.parse
-import urllib.request
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -15,6 +15,8 @@ from .axp import (
     CredentialHandle, PreparedAction, Resource, StructuredError,
 )
 from .credentials import SENSITIVE_KEYS
+from .http import HTTPClient, HTTPFailure
+from .health import ComponentHealth
 
 DISCOVERY_PATH = "/.well-known/apx"
 TRANSPORT_VERSION = "0.1"
@@ -150,6 +152,7 @@ class ActionProvider:
         for action in self.actions: registry.register(action)
 
     def get_receipt(self, receipt_id: str) -> ActionReceipt | None: return self.receipts.get(receipt_id)
+    def health(self)->ComponentHealth: return ComponentHealth(f"provider:{self.identity.id}","healthy",capabilities=tuple(self.manifest().capabilities),metadata={"actions":len(self.actions)})
 
 
 def _contains_sensitive_key(value: Any) -> bool:
@@ -185,29 +188,29 @@ def validate_provider(provider: ActionProvider | ProviderManifest) -> list[str]:
 
 class RemoteProvider:
     """Explicitly enrolled HTTP provider; discovery never implies trust or execution."""
-    def __init__(self, origin: str, manifest: ProviderManifest, *, opener=None):
-        self.origin=origin.rstrip("/"); self._manifest=manifest; self.opener=opener or urllib.request.urlopen
+    def __init__(self, origin: str, manifest: ProviderManifest, *, client: HTTPClient|None=None):
+        self.origin=origin.rstrip("/"); self._manifest=manifest; self.client=client or HTTPClient()
 
     @classmethod
-    def discover(cls, origin: str, *, opener=None, timeout: int = 10) -> "RemoteProvider":
+    def discover(cls, origin: str, *, opener=None, client: HTTPClient|None=None, timeout: int = 10) -> "RemoteProvider":
         parsed=urllib.parse.urlparse(origin)
         local=parsed.hostname in {"localhost","127.0.0.1","::1"}
         if parsed.scheme!="https" and not (parsed.scheme=="http" and local): raise ValueError("remote APX discovery requires HTTPS")
-        open_fn=opener or urllib.request.urlopen
-        request=urllib.request.Request(origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"})
-        response=open_fn(request,timeout=timeout); raw=response.read(1024*1024+1)
+        if opener is not None:
+            response=opener(__import__("urllib.request",fromlist=["Request"]).Request(origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"}),timeout=timeout); raw=response.read(1024*1024+1)
+        else:
+            http=client or HTTPClient(); raw=http.request("GET",origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"},timeout=timeout).content
         if len(raw)>1024*1024: raise ValueError("provider manifest exceeds 1 MiB")
         manifest=ProviderManifest.from_dict(json.loads(raw))
         errors=validate_provider(manifest)
         if errors: raise ValueError("invalid provider manifest: "+"; ".join(errors))
-        return cls(origin,manifest,opener=open_fn)
+        return cls(origin,manifest,client=client)
 
     def manifest(self) -> ProviderManifest: return self._manifest
+    def health(self)->ComponentHealth: return ComponentHealth(f"provider:{self._manifest.provider.id}","healthy",capabilities=self._manifest.capabilities,metadata={"origin":self.origin,"actions":len(self._manifest.actions)})
 
     def _post(self, path: str, value: dict[str,Any]) -> dict[str,Any]:
-        request=urllib.request.Request(self.origin+path,data=json.dumps(value).encode(),method="POST",
-            headers={"Content-Type":"application/apx+json","Accept":"application/apx+json"})
-        return json.loads(self.opener(request,timeout=30).read(1024*1024))
+        return self.client.request("POST",self.origin+path,json=value,headers={"Content-Type":"application/apx+json","Accept":"application/apx+json"},idempotent=False).json()
 
     def prepare_action(self, request: ActionRequest) -> dict[str,Any]: return self._post("/apx/actions/prepare",request.to_dict())
     def execute_action(self, request: ActionRequest) -> dict[str,Any]: return self._post("/apx/actions/execute",request.to_dict())

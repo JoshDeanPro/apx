@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Optional OpenPower identity adapter. Never imported/required unless [auth.openpower] is
 configured -- AXP Core has no dependency on this module or on OpenPower being reachable.
 
@@ -18,10 +19,9 @@ import hmac
 import json
 import os
 import time
-import urllib.error
-import urllib.request
 from dataclasses import replace
 from typing import Any, Callable
+from .http import HTTPClient,HTTPFailure
 
 # --- Device linking (AXP <-> OpenPower website) -----------------------------
 #
@@ -45,16 +45,10 @@ class DeviceLinkExpired(RuntimeError):
 
 
 def _http_post_json(url: str, body: dict[str, Any], *, timeout: int = 10) -> tuple[int, dict[str, Any]]:
-    data = json.dumps(body).encode()
-    request = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return response.status, json.loads(response.read() or b"{}")
-    except urllib.error.HTTPError as error:
-        try:
-            return error.code, json.loads(error.read() or b"{}")
-        except (ValueError, UnicodeDecodeError):
-            return error.code, {}
+        response=HTTPClient().request("POST",url,json=body,timeout=timeout,idempotent=False,raise_for_status=False)
+        return response.status,response.json() or {}
+    except (HTTPFailure,ValueError): raise
 
 
 def request_device_link(base_url: str, agent_name: str) -> dict[str, Any]:
@@ -156,8 +150,7 @@ class OpenPowerAuthProvider:
         return secret
 
     def _http_request(self, method: str, path: str) -> dict[str, Any]:
-        request = urllib.request.Request(f"{self.base_url}{path}", method=method)
-        with urllib.request.urlopen(request, timeout=10) as response: return json.loads(response.read() or b"{}")
+        return HTTPClient().request(method,f"{self.base_url}{path}",timeout=10,idempotent=method=="GET").json() or {}
 
     def authenticate(self, credentials: dict[str, Any]) -> AuthContext:
         token = credentials.get("token")

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
 
 import json
@@ -23,7 +24,8 @@ class MCPStdioAdapter:
     def _start(self):
         if self.process and self.process.poll() is None: return
         self.process=subprocess.Popen(self.command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,bufsize=1)
-        self._request("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"apx","version":"0.5.0"}})
+        from .. import __version__
+        self._request("initialize",{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"apx","version":__version__}})
         self._notify("notifications/initialized")
 
     def _request(self,method: str,params: dict[str,Any]):

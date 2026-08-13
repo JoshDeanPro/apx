@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
 
 import json
@@ -43,7 +44,8 @@ class MCPServer:
             if method=="initialize":
                 requested=params.get("protocolVersion")
                 version=requested if isinstance(requested,str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}",requested) else FALLBACK_VERSION
-                result={"protocolVersion":version,"capabilities":{"tools":{"listChanged":False}},"serverInfo":{"name":"apx","version":"0.5.0"},"instructions":"Use the same discovered APX actions available to human CLI and Python callers. Prefer read-only inspection before mutations."}
+                from . import __version__
+                result={"protocolVersion":version,"capabilities":{"tools":{"listChanged":False}},"serverInfo":{"name":"apx","version":__version__},"instructions":"Use the same discovered APX actions available to human CLI and Python callers. Prefer read-only inspection before mutations."}
             elif method=="ping": result={}
             elif method=="tools/list": result={"tools":self.tools()}
             elif method=="tools/call":

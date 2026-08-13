@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 from __future__ import annotations
 
 import json
@@ -7,6 +8,7 @@ from typing import Callable
 
 from .discovery import inspect_host
 from .models import Host
+from .files import atomic_write
 
 
 def _quote(value: str) -> str: return json.dumps(value)
@@ -38,8 +40,6 @@ def initialize(path: str | Path, *, ssh_hosts: list[str] | None = None, interact
         except Exception as error: errors.append({"host":name,"target":target.strip(),"error":str(error)})
     lines=["version = 1","","[[hosts]]",'name = "local"','transport = "local"']
     for host in hosts[1:]: lines.extend(["","[[hosts]]",f"name = {_quote(host.name)}",'transport = "ssh"',f"target = {_quote(host.target or '')}"])
-    destination.parent.mkdir(parents=True,exist_ok=True)
-    destination.write_text("\n".join(lines)+"\n",encoding="utf-8")
+    atomic_write(destination,"\n".join(lines)+"\n")
     found=sorted(name for name,value in discovered["capabilities"].items() if value["available"])
     return {"config":str(destination),"local":{"hostname":discovered["hostname"],"os":discovered["os"],"architecture":discovered["architecture"],"capabilities":found},"ssh_hosts":configured,"errors":errors}
-

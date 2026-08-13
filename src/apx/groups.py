@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Small user-owned resource group/tag overlay; no database required."""
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .axp import Resource
+from .files import atomic_write
 
 class GroupStore:
     def __init__(self,config_path: Path,configured: dict | None = None):
@@ -27,5 +29,5 @@ class GroupStore:
         entry=self.overlay.setdefault(resource,{"groups":[],"tags":[]}); groups=entry["groups"]
         if add and group not in groups: groups.append(group)
         if not add and group in groups: groups.remove(group)
-        self.path.write_text(json.dumps(self.overlay,indent=2)+"\n",encoding="utf-8")
+        atomic_write(self.path,json.dumps(self.overlay,indent=2)+"\n")
         return {"resource":resource,"group":group,"member":add,"storage":str(self.path)}

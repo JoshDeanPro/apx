@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Generate human, AI, and machine documentation from APX's structured truth.
 
 Nothing here is hand-duplicated: every section is rendered from Resources, Context,

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """Plugin boundary for optional AXP contributions."""
 from __future__ import annotations
 

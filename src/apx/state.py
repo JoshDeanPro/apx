@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MPL-2.0
 """User-owned, persisted system/security state -- no database required.
 
 State names are user-extensible strings; only "normal" carries built-in meaning
@@ -10,6 +11,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from .files import atomic_write
 
 DEFAULT_STATE = "normal"
 SECURITY_STATES = ("incident", "lockdown")
@@ -42,7 +44,7 @@ class StateStore:
         entry = {"from": previous, "to": name, "reason": reason, "actor": actor_id, "at": _now()}
         self._data["current"] = name; self._data["reason"] = reason; self._data["actor"] = actor_id
         self._data["history"] = (self._data.get("history", []) + [entry])[-50:]
-        self.path.write_text(json.dumps(self._data, indent=2) + "\n", encoding="utf-8")
+        atomic_write(self.path,json.dumps(self._data, indent=2) + "\n")
         return entry
 
     def status(self) -> dict[str, Any]:

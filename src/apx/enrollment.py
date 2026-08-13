@@ -1,6 +1,7 @@
+# SPDX-License-Identifier: MPL-2.0
 """Agent enrollment: an installed AI/machine/service asking for an identity, optionally
 linked to OpenPower. Storage mirrors GroupStore/StateStore/MissionStore exactly -- one JSON
-overlay file next to the config, whole-file load/save, no locking, no migrations.
+overlay file next to the config, atomically replaced under an advisory lock, no migrations.
 
 Enrollment modes (configured via `[auth] enrollment_mode`, default "manual"):
   disabled       -- requests are refused outright (enforced by the caller, see cloud.py)
@@ -15,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from .files import atomic_write
 
 MODES = ("disabled", "manual", "trusted_device", "automatic")
 STATUSES = ("pending", "approved", "denied", "cancelled")
@@ -38,7 +40,7 @@ class EnrollmentStore:
             data = json.loads(self.path.read_text(encoding="utf-8")); data.setdefault("requests", {}); return data
         except (OSError, json.JSONDecodeError): return {"requests": {}}
 
-    def _save(self) -> None: self.path.write_text(json.dumps(self._data, indent=2) + "\n", encoding="utf-8")
+    def _save(self) -> None: atomic_write(self.path,json.dumps(self._data, indent=2) + "\n")
 
     def request(self, *, machine_id: str, runtime: str, mode: str = "manual", principal: str | None = None,
                 requested_roles: list[str] | None = None, requested_scopes: list[str] | None = None,
