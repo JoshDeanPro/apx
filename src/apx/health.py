@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict,dataclass,field
 from typing import Any
 
-HEALTH_STATES=("healthy","degraded","unavailable","misconfigured")
+HEALTH_STATES=("healthy","degraded","unavailable","misconfigured","incompatible","authentication_required","update_required")
 
 
 @dataclass(frozen=True)

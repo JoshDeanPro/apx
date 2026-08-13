@@ -6,6 +6,7 @@ from typing import Any
 from jsonschema.validators import Draft202012Validator
 
 from .client import APXClient
+from .actions import ActionRegistry
 from .providers import ActionProvider, validate_provider
 
 
@@ -32,4 +33,31 @@ def client_conformance(client: APXClient, *, read_action: str) -> list[str]:
     if read_action not in {action.id for action in manifest.actions}: errors.append("client did not discover read action")
     result = client.execute(read_action)
     if not result.ok or result.status != "completed": errors.append("client could not execute read action")
+    return errors
+
+
+def bridge_conformance(bridge: Any) -> list[str]:
+    """Validate the small replaceable Bridge boundary without executing Actions."""
+    errors: list[str] = []
+    for attribute in ("id", "version", "provenance"):
+        if not getattr(bridge, attribute, None): errors.append(f"bridge is missing {attribute}")
+    try:
+        resources = tuple(bridge.discover_resources())
+        capabilities = tuple(bridge.discover_capabilities())
+        resource_ids = {item.id for item in resources}
+        if len(resource_ids) != len(resources): errors.append("bridge Resource IDs must be unique")
+        for capability in capabilities:
+            if capability.resource not in resource_ids:
+                errors.append(f"{capability.id}: unknown Resource {capability.resource}")
+            if capability.provenance != bridge.provenance:
+                errors.append(f"{capability.id}: provenance differs from bridge")
+        registry = ActionRegistry(); bridge.register_actions(registry)
+        actions = {item.name for item in registry.list()}
+        for capability in capabilities:
+            for action in capability.actions:
+                if action not in actions: errors.append(f"{capability.id}: unknown Action {action}")
+        health = bridge.health()
+        if health.component != bridge.id: errors.append("health component does not identify bridge")
+    except Exception as error:
+        errors.append(f"bridge discovery failed: {error}")
     return errors

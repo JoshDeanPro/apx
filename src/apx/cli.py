@@ -41,11 +41,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("plugins",help="list plugin metadata and health")
     plugin=sub.add_parser("plugin",help="inspect a plugin"); plugin.add_argument("name")
     sub.add_parser("relationships",help="list resource relationships")
-    sub.add_parser("resources",help="list AXP resources")
+    sub.add_parser("resources",help="list APX resources")
     sub.add_parser("groups",help="list resource groups")
     group=sub.add_parser("group",help="inspect or change a group"); group.add_argument("verb",choices=["show","add","remove"]); group.add_argument("name"); group.add_argument("resource",nargs="?")
     create=sub.add_parser("create",help="scaffold an extension"); create.add_argument("kind",choices=["plugin","action","adapter"]); create.add_argument("name"); create.add_argument("--output",default=".")
-    run=sub.add_parser("run",help="run any configured AXP action"); run.add_argument("action"); run.add_argument("--input",default="{}",help="JSON object of action inputs")
+    run=sub.add_parser("run",help="run any configured APX action"); run.add_argument("action"); run.add_argument("--input",default="{}",help="JSON object of action inputs")
     sub.add_parser("hosts",help="list configured hosts")
     inspect=sub.add_parser("inspect",help="discover a host"); inspect.add_argument("host")
     status=sub.add_parser("status",help="read host status"); status.add_argument("host")
@@ -98,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     identity.add_argument("--machine-id"); identity.add_argument("--runtime")
     identity.add_argument("--role",action="append",default=[],dest="requested_roles"); identity.add_argument("--scope",action="append",default=[],dest="requested_scopes")
     identity.add_argument("--device-fingerprint"); identity.add_argument("--claimant"); identity.add_argument("--ttl",type=int,default=600)
-    identity.add_argument("--agent-name",help="shown to the human approving this link, for identity device-link (default: 'AXP on <hostname>')")
+    identity.add_argument("--agent-name",help="shown to the human approving this link, for identity device-link (default: 'APX on <hostname>')")
     credential=sub.add_parser("credential",help="manage ActorCredentials (authenticate the actor -- distinct from provider secrets)")
     credential.add_argument("verb",choices=["issue","show","rotate","confirm-rotation","revoke"])
     credential.add_argument("id",nargs="?")
@@ -234,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
             openpower_config=cloud.config.get("auth",{}).get("openpower")
             if not openpower_config or not openpower_config.get("endpoint"):
                 output({"ok":False,"error":"[auth.openpower].endpoint is not configured in apx.toml"}); return 2
-            agent_name=args.agent_name or f"AXP on {socket.gethostname()}"
+            agent_name=args.agent_name or f"APX on {socket.gethostname()}"
             try: link=request_device_link(openpower_config["endpoint"],agent_name)
             except Exception as error: output({"ok":False,"error":str(error)}); return 1
             print(f"Go to {link['verification_uri']} and enter this code:",file=sys.stderr)
