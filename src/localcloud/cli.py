@@ -74,12 +74,13 @@ def main(argv: list[str] | None = None) -> int:
     auth=sub.add_parser("auth",help="authentication provider status / authenticate")
     auth.add_argument("verb",choices=["status","authenticate"]); auth.add_argument("--method",default="local"); auth.add_argument("--token",help="bearer token/JWT, for --method openpower")
     identity=sub.add_parser("identity",help="manage Principals, OpenPower links, enrollment, and device pairing")
-    identity.add_argument("verb",choices=["list","show","link","unlink","enroll-request","enroll-status","enroll-cancel","enroll-approve","enroll-deny","pair-create","pair-claim"])
+    identity.add_argument("verb",choices=["list","show","link","unlink","enroll-request","enroll-status","enroll-cancel","enroll-approve","enroll-deny","pair-create","pair-claim","device-link"])
     identity.add_argument("target",nargs="?",help="subject id / enrollment request id / pairing code, depending on verb")
     identity.add_argument("--openpower-subject"); identity.add_argument("--openpower-ref")
     identity.add_argument("--machine-id"); identity.add_argument("--runtime")
     identity.add_argument("--role",action="append",default=[],dest="requested_roles"); identity.add_argument("--scope",action="append",default=[],dest="requested_scopes")
     identity.add_argument("--device-fingerprint"); identity.add_argument("--claimant"); identity.add_argument("--ttl",type=int,default=600)
+    identity.add_argument("--agent-name",help="shown to the human approving this link, for identity device-link (default: 'AXP on <hostname>')")
     credential=sub.add_parser("credential",help="manage ActorCredentials (authenticate the actor -- distinct from provider secrets)")
     credential.add_argument("verb",choices=["issue","show","rotate","confirm-rotation","revoke"])
     credential.add_argument("id",nargs="?")
@@ -195,6 +196,32 @@ def main(argv: list[str] | None = None) -> int:
     if args.command=="identity":
         v=args.verb
         if v=="list": result=cloud.run("identity.list",actor=args.actor)
+        elif v=="device-link":
+            import socket
+            import time as _time
+            from .auth_openpower import DeviceLinkDenied,DeviceLinkExpired,DeviceLinkPending,poll_device_token_once,request_device_link
+            openpower_config=cloud.config.get("auth",{}).get("openpower")
+            if not openpower_config or not openpower_config.get("endpoint"):
+                output({"ok":False,"error":"[auth.openpower].endpoint is not configured in localcloud.toml"}); return 2
+            agent_name=args.agent_name or f"AXP on {socket.gethostname()}"
+            try: link=request_device_link(openpower_config["endpoint"],agent_name)
+            except Exception as error: output({"ok":False,"error":str(error)}); return 1
+            print(f"Go to {link['verification_uri']} and enter this code:",file=sys.stderr)
+            print(f"\n    {link['user_code']}\n",file=sys.stderr)
+            print("Waiting for approval (Ctrl-C to cancel)...",file=sys.stderr)
+            deadline=_time.time()+link["expires_in"]; token_payload=None
+            while _time.time()<deadline:
+                try: token_payload=poll_device_token_once(openpower_config["endpoint"],link["device_code"]); break
+                except DeviceLinkPending: _time.sleep(link["interval"]); continue
+                except (DeviceLinkDenied,DeviceLinkExpired) as error: output({"ok":False,"error":str(error)}); return 1
+                except Exception as error: output({"ok":False,"error":str(error)}); return 1
+            if token_payload is None: output({"ok":False,"error":"the device link code expired; request a new one"}); return 1
+            stored=False
+            try: cloud.secrets.set("openpower_axp_identity_token",token_payload["token"]); stored=True
+            except Exception: pass  # no [credentials.openpower_axp_identity_token] declared -- token is still returned below
+            output({"ok":True,"identity_key":token_payload["identity_key"],"expires_at":token_payload["expires_at"],
+                     "token":None if stored else token_payload["token"],"token_stored_in_keychain":stored})
+            return 0
         elif v=="enroll-request":
             if not (args.machine_id and args.runtime): output({"ok":False,"error":"--machine-id and --runtime are required for identity enroll-request"}); return 2
             result=cloud.run("identity.enrollment.request",actor=args.actor,machine_id=args.machine_id,runtime=args.runtime,principal=args.target,requested_roles=args.requested_roles,requested_scopes=args.requested_scopes,device_fingerprint=args.device_fingerprint)

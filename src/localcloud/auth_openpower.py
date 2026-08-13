@@ -23,6 +23,79 @@ import urllib.request
 from dataclasses import replace
 from typing import Any, Callable
 
+# --- Device linking (AXP <-> OpenPower website) -----------------------------
+#
+# Counterpart to openpower.one's /device/link + /device/token endpoints (OAuth
+# device-authorization-grant shaped): this machine never needs a localhost
+# callback, and the website never has to "just know" what happened on some
+# machine -- approval only ever happens inside the website's own
+# already-authenticated session. See `localcloud identity device-link`.
+
+
+class DeviceLinkPending(RuntimeError):
+    """Raised by poll_device_token while status == authorization_pending."""
+
+
+class DeviceLinkDenied(RuntimeError):
+    pass
+
+
+class DeviceLinkExpired(RuntimeError):
+    pass
+
+
+def _http_post_json(url: str, body: dict[str, Any], *, timeout: int = 10) -> tuple[int, dict[str, Any]]:
+    data = json.dumps(body).encode()
+    request = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as error:
+        try:
+            return error.code, json.loads(error.read() or b"{}")
+        except (ValueError, UnicodeDecodeError):
+            return error.code, {}
+
+
+def request_device_link(base_url: str, agent_name: str) -> dict[str, Any]:
+    """Starts the flow: returns device_code (kept locally), user_code and
+    verification_uri (shown to the human), expires_in and interval."""
+    status, body = _http_post_json(f"{base_url.rstrip('/')}/v1/device/link", {"agent_name": agent_name})
+    if status >= 400:
+        raise AuthenticationError(f"could not start device link: {body}")
+    return body
+
+
+def poll_device_token_once(base_url: str, device_code: str) -> dict[str, Any]:
+    """One poll. Returns the token payload on success. Raises DeviceLinkPending
+    (keep polling), DeviceLinkDenied, or DeviceLinkExpired for the other
+    documented outcomes; any other 4xx/5xx raises AuthenticationError."""
+    status, body = _http_post_json(f"{base_url.rstrip('/')}/v1/device/token", {"device_code": device_code})
+    if status < 400:
+        return body
+    error = (body.get("detail") or {}).get("error") if isinstance(body.get("detail"), dict) else body.get("error")
+    if error == "authorization_pending" or error == "slow_down":
+        raise DeviceLinkPending(error)
+    if error == "access_denied":
+        raise DeviceLinkDenied("the human denied this device link")
+    if error == "expired_token":
+        raise DeviceLinkExpired("the device link code expired; request a new one")
+    raise AuthenticationError(f"device link poll failed: {body}")
+
+
+def wait_for_device_link(base_url: str, device_code: str, *, interval: int, expires_in: int) -> dict[str, Any]:
+    """Blocking convenience wrapper around poll_device_token_once -- polls at
+    `interval` seconds until approved, denied, or expired. Callers that want
+    to print progress between polls should call poll_device_token_once
+    directly in their own loop instead."""
+    deadline = time.time() + expires_in
+    while time.time() < deadline:
+        try:
+            return poll_device_token_once(base_url, device_code)
+        except DeviceLinkPending:
+            time.sleep(interval)
+    raise DeviceLinkExpired("the device link code expired; request a new one")
+
 from .auth import AuthenticationError
 from .axp import AuthContext
 
