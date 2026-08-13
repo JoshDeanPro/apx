@@ -154,5 +154,43 @@ class IntegrationTests(unittest.TestCase):
                 self.assertEqual(cli_main(["--config",str(path),"run","cloudflare.zone.list"]),0)
                 self.assertIn('"action": "cloudflare.zone.list"',printed.call_args.args[0])
 
+    def test_cloudflare_and_discord_deeper_actions(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{"LC_CF_TOKEN":"fake-token","LC_DC_TOKEN":"fake-token"}):
+            extra=(
+                '\n[credentials.cf]\nsource="environment"\nreference="LC_CF_TOKEN"\n[plugins.cloudflare]\nenabled=true\ncredential="cf"\n'
+                '\n[credentials.dc]\nsource="environment"\nreference="LC_DC_TOKEN"\n[plugins.discord]\nenabled=true\nbot_credential="dc"\n'
+            )
+            path=write_config(Path(directory),extra)
+            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse({"success":True,"result":[{"id":"setting-1"}]})):
+                cloud=LocalCloud(path)
+                result=cloud.run("cloudflare.setting.list",zone_id="zone-1")
+                self.assertTrue(result.ok); self.assertEqual(result.result["data"],[{"id":"setting-1"}])
+            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse([{"id":"role-1"}])):
+                cloud=LocalCloud(path)
+                result=cloud.run("discord.role.list",guild_id="guild-1")
+                self.assertTrue(result.ok); self.assertEqual(result.result["data"],[{"id":"role-1"}])
+
+    def test_paddle_plugin_loads_and_runs(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{"LC_PADDLE_TOKEN":"fake-token"}):
+            extra='\n[credentials.paddle]\nsource="environment"\nreference="LC_PADDLE_TOKEN"\n[plugins.paddle]\nenabled=true\ncredential="paddle"\n'
+            path=write_config(Path(directory),extra)
+            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse({"data":[{"id":"cus_01"}]})):
+                cloud=LocalCloud(path)
+                result=cloud.run("paddle.customer.list")
+                self.assertTrue(result.ok); self.assertEqual(result.result["data"],[{"id":"cus_01"}])
+
+    def test_purelymail_plugin_loads_and_runs_and_unwraps_body_errors(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{"LC_PM_TOKEN":"fake-token"}):
+            extra='\n[credentials.pm]\nsource="environment"\nreference="LC_PM_TOKEN"\n[plugins.purelymail]\nenabled=true\ncredential="pm"\n'
+            path=write_config(Path(directory),extra)
+            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse({"type":"success","result":{"domains":[]}})):
+                cloud=LocalCloud(path)
+                result=cloud.run("purelymail.domain.list")
+                self.assertTrue(result.ok); self.assertEqual(result.result,{"domains":[]})
+            with patch("urllib.request.urlopen",return_value=FakeHTTPResponse({"type":"error","message":"invalid token"})):
+                cloud=LocalCloud(path)
+                result=cloud.run("purelymail.domain.list")
+                self.assertFalse(result.ok); self.assertIn("invalid token",result.error.message)
+
 
 if __name__=="__main__": unittest.main()

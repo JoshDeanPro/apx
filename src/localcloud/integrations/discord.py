@@ -10,7 +10,7 @@ class Plugin(HTTPProviderPlugin):
     base_url="https://discord.com/api/v10"
     version_info=VersionInfo(configured="v10",api_family="REST",api_version="v10",supported=("v10",),recommended="v10",compatibility="supported",source="official Discord developer documentation")
     credential_headers=(("bot_credential","Authorization","Bot "),)
-    actions=(ProviderAction("discord.status","/users/@me",api_version="v10"),ProviderAction("discord.application.inspect","/oauth2/applications/@me",api_version="v10"),ProviderAction("discord.guild.list","/users/@me/guilds",api_version="v10"))
+    actions=(ProviderAction("discord.status","/users/@me",api_version="v10"),ProviderAction("discord.application.inspect","/oauth2/applications/@me",api_version="v10"),ProviderAction("discord.guild.list","/users/@me/guilds",api_version="v10"),ProviderAction("discord.role.list","/guilds/{guild_id}/roles",parameters=("guild_id",),api_version="v10"),ProviderAction("discord.member.list","/guilds/{guild_id}/members",parameters=("guild_id",),api_version="v10"),ProviderAction("discord.audit_log.list","/guilds/{guild_id}/audit-logs",parameters=("guild_id",),api_version="v10"),ProviderAction("discord.invite.list","/guilds/{guild_id}/invites",parameters=("guild_id",),api_version="v10"),ProviderAction("discord.command.list","/applications/{application_id}/commands",parameters=("application_id",),api_version="v10"))
 
     @property
     def metadata(self):

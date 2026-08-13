@@ -113,7 +113,7 @@ class PluginManager:
             "porkbun":"porkbun", "cloudflare":"cloudflare", "godaddy":"godaddy",
             "discord":"discord", "openai":"openai", "airtable":"airtable",
             "digitalocean":"digitalocean", "supabase":"supabase",
-            "aws":"aws",
+            "aws":"aws", "paddle":"paddle", "purelymail":"purelymail",
         }
         for name,module_name in builtins.items():
             try:
