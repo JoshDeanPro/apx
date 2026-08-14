@@ -29,9 +29,12 @@ class MCPServer:
         self.cloud.emit(Event("agent.connected","mcp",{"actor":self.actor},{"authenticated":auth_context is not None}))
 
     def tools(self) -> list[dict[str, Any]]:
+        # Same predicate APX.discover()/capability_graph(actor=...) use, so an agent's
+        # tool list and a human's UI capability list never diverge -- including Mission
+        # and Grant-delegated authority, not just static roles.
         tools=[]
         for name,action in self.by_tool.items():
-            if not self.cloud.policy.might_allow(self.actor,action.name): continue
+            if not self.cloud._actor_can_discover(self.actor,action.name): continue
             schema={**action.schema,"properties":dict(action.schema.get("properties",{}))}
             if action.destructive:
                 schema["properties"]["confirm"]={"type":"boolean","description":"Must be true for destructive actions."}
@@ -43,7 +46,7 @@ class MCPServer:
                     "authoritative_state_version":{"type":["string","null"]},
                     "confirmation":{"type":"object","description":"Confirmation bound to prepared_action_id."},
                 })
-            tools.append({"name":name,"title":action.name,"description":action.description,"inputSchema":schema,"annotations":{"readOnlyHint":action.read_only,"destructiveHint":action.destructive,"idempotentHint":False,"openWorldHint":True}})
+            tools.append({"name":name,"title":action.name,"description":action.description,"inputSchema":schema,"annotations":{"readOnlyHint":action.read_only,"destructiveHint":action.destructive,"idempotentHint":action._idempotent(),"openWorldHint":action.provenance not in {"native_apx","local_native"}}})
         return tools
 
     def dispatch(self, message: dict[str, Any]) -> dict[str, Any] | None:
@@ -62,7 +65,8 @@ class MCPServer:
                 action=self.by_tool.get(params.get("name"))
                 if not action: raise ValueError(f"unknown tool {params.get('name')!r}")
                 arguments=dict(params.get("arguments") or {})
-                if action.destructive and arguments.pop("confirm",False) is not True:
+                confirmed=arguments.pop("confirm",False)
+                if action.destructive and confirmed is not True:
                     raise ValueError("destructive action requires confirm=true")
                 session=self.provider_sessions.get(action.provider or "")
                 if session and (not action.read_only or action.confirmation!="none"):
@@ -81,7 +85,9 @@ class MCPServer:
                         else:
                             outcome=session.execute(ActionRequest(action.name,input=arguments,actor=self.actor,auth_context=self.auth_context,
                                 prepared_action_id=prepared_id,idempotency_key=idempotency_key,authoritative_state_version=state_version)).to_dict()
-                else: outcome=self.cloud.run(action.name,actor=self.actor,auth_context=self.auth_context,**arguments).to_dict()
+                else:
+                    confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"mcp:{ident}:{action.name}"} if confirmed and action.confirmation!="none" else None
+                    outcome=self.cloud.run(action.name,actor=self.actor,auth_context=self.auth_context,confirmation=confirmation,**arguments).compact()
                 is_error=outcome.get("ok") is False
                 result={"content":[{"type":"text","text":json.dumps(outcome,indent=2)}],"structuredContent":outcome,"isError":is_error}
             else: return {"jsonrpc":"2.0","id":ident,"error":{"code":-32601,"message":f"Method not found: {method}"}}

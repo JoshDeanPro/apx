@@ -23,3 +23,7 @@ Offers and content variants may expose APX Actions, enabling an authorized trans
 from relevance to quote, purchase, provision, deploy, accept, dismiss, or reward claim.
 APX does not process payments or operate an advertising network.
 
+Context entries carry source, confidence, creation/update/use timestamps,
+expiry, verification, sensitivity, and disclosure scope. Explicit new user
+preferences supersede stale inference. See
+`optional-commercial-extensions.md` for the optional Provider contracts.

@@ -35,9 +35,15 @@ class CredentialReference:
     tags: tuple[str,...] = ()
     api_family: str | None = None
     api_version: str | None = None
+    # The actor (human, almost always) accountable for this credential -- who it
+    # belongs to, not who may currently use it (that's Grant/RolePolicy scoping on
+    # the `id` target dimension, see cloud.py's _grant_extra_allow). An actor id
+    # like "human:ethan", not a raw email -- the actor's own profile is the single
+    # place identity details (email, display name) belong.
+    owner: str | None = None
 
     def to_dict(self) -> dict[str,Any]:
-        return {"id":self.id,"kind":self.kind,"source":self.source,"reference":self.reference,"scopes":self.scopes,"description":self.description,"groups":self.groups,"tags":self.tags,"api_family":self.api_family,"api_version":self.api_version}
+        return {"id":self.id,"kind":self.kind,"source":self.source,"reference":self.reference,"scopes":self.scopes,"description":self.description,"groups":self.groups,"tags":self.tags,"api_family":self.api_family,"api_version":self.api_version,"owner":self.owner}
 
 
 class CredentialRegistry:
@@ -47,8 +53,8 @@ class CredentialRegistry:
     def from_config(cls, values: dict[str,Any]) -> "CredentialRegistry":
         refs={}
         for name,value in values.items():
-            known={"kind","provider","source","reference","scopes","description","groups","tags","api_family","api_version"}
-            refs[name]=CredentialReference(id=name,kind=value.get("provider",value.get("kind",name)),source=value.get("source","environment"),reference=value.get("reference",""),scopes=tuple(value.get("scopes",())),description=value.get("description",""),metadata={k:v for k,v in value.items() if k not in known},groups=tuple(value.get("groups",())),tags=tuple(value.get("tags",())),api_family=value.get("api_family"),api_version=value.get("api_version"))
+            known={"kind","provider","source","reference","scopes","description","groups","tags","api_family","api_version","owner"}
+            refs[name]=CredentialReference(id=name,kind=value.get("provider",value.get("kind",name)),source=value.get("source","environment"),reference=value.get("reference",""),scopes=tuple(value.get("scopes",())),description=value.get("description",""),metadata={k:v for k,v in value.items() if k not in known},groups=tuple(value.get("groups",())),tags=tuple(value.get("tags",())),api_family=value.get("api_family"),api_version=value.get("api_version"),owner=value.get("owner"))
         return cls(refs)
 
     def get(self, credential_id: str) -> CredentialReference:
@@ -67,7 +73,7 @@ class CredentialRegistry:
         results=[]
         for reference in self.references.values():
             available=reference.source=="environment" and bool(os.environ.get(reference.reference,""))
-            results.append({"id":reference.id,"kind":reference.kind,"configured":True,"available":available,"source":reference.source,"reference":reference.reference,"scopes":reference.scopes,"description":reference.description,"groups":reference.groups,"tags":reference.tags,"api_family":reference.api_family,"api_version":reference.api_version})
+            results.append({"id":reference.id,"kind":reference.kind,"configured":True,"available":available,"source":reference.source,"reference":reference.reference,"scopes":reference.scopes,"description":reference.description,"groups":reference.groups,"tags":reference.tags,"api_family":reference.api_family,"api_version":reference.api_version,"owner":reference.owner})
         return results
 
     def redact(self, value: Any) -> Any:
@@ -131,10 +137,17 @@ class EnvironmentBackend:
 
 
 class KeychainBackend:
-    """macOS Keychain, via the stdlib-only `security` CLI (no new dependency). Darwin only."""
+    """macOS Keychain, via the stdlib-only `security` CLI (no new dependency). Darwin only.
+
+    Service name is "localcloud", not "apx" -- apx was renamed from localcloud, but
+    existing Keychain entries were never migrated (they were created under the old
+    name and nothing has re-added them under the new one). Changing this to "apx"
+    would silently break every already-configured credential rather than fix
+    anything; match the value actually on disk (and the one apx.toml's own comment
+    already documents) instead of the one that matches the current package name."""
     name="keychain"
     capabilities=frozenset({"get","set","health"})
-    service="apx"
+    service="localcloud"
 
     def __init__(self, run: Callable[..., subprocess.CompletedProcess] = subprocess.run):
         if sys.platform!="darwin": raise SecretBackendError("the keychain backend is only available on macOS")
@@ -165,6 +178,76 @@ class KeychainBackend:
         result=self._exec(["/usr/bin/security","add-generic-password","-s",self.service,"-a",ref.reference,"-w",value,"-U"])
         if result.returncode!=0: raise SecretBackendError(result.stderr.strip() or "keychain write failed")
         return {"id":ref.id,"source":self.name,"status":"updated"}
+
+
+class VaultwardenBackend:
+    """A user's own Bitwarden-compatible vault (self-hosted Vaultwarden, or bitwarden.com), driven
+    through the official `bw` CLI. APX never implements Bitwarden's client-side crypto itself, and
+    never sees a master password: the human runs `bw login`/`bw unlock` themselves, outside APX, and
+    hands this backend an already-unlocked session token via an environment variable. This is
+    deliberate -- OpenPower/APX does not host or store user secrets centrally; the vault, its data,
+    and the only key that can unlock it stay entirely on the user's own side.
+
+    `ref.reference` is the vault item's name/search term (what `bw get` takes), resolved against
+    whatever vault the CLI is currently pointed at (`bw config server` on the user's machine) --
+    self-hosted Vaultwarden or bitwarden.com, APX does not care which.
+    """
+    name="vaultwarden"
+    capabilities=frozenset({"get","set","health"})
+
+    def __init__(self, session_env: str = "BW_SESSION", run: Callable[..., subprocess.CompletedProcess] = subprocess.run):
+        self.session_env=session_env
+        self._run=run
+
+    def _session(self) -> str:
+        session=os.environ.get(self.session_env,"")
+        if not session: raise SecretBackendError(f"vault is locked: {self.session_env!r} is not set (run `bw unlock` yourself and export the session token, APX will not do this for you)")
+        return session
+
+    def _exec(self, argv: list[str]) -> subprocess.CompletedProcess:
+        try: return self._run(["bw",*argv,"--session",self._session()],capture_output=True,text=True,timeout=15)
+        except FileNotFoundError as error: raise SecretBackendError("the `bw` CLI is not installed; install the Bitwarden CLI to use the vaultwarden backend") from error
+        except (subprocess.SubprocessError, OSError) as error: raise SecretBackendError(f"bw command failed: {error}") from error
+
+    def _find_item(self, reference: str) -> dict[str, Any] | None:
+        result=self._exec(["get","item",reference,"--response"])
+        if result.returncode!=0: return None
+        try:
+            envelope=json.loads(result.stdout)
+        except json.JSONDecodeError: return None
+        return envelope.get("data") if envelope.get("success") else None
+
+    def health(self, ref: CredentialReference) -> dict[str, Any]:
+        try:
+            item=self._find_item(ref.reference)
+            return {"id":ref.id,"source":self.name,"available":item is not None,"reference":ref.reference,"lifecycle":"active" if item else "unknown"}
+        except SecretBackendError as error:
+            return {"id":ref.id,"source":self.name,"available":False,"reference":ref.reference,"error":str(error),"lifecycle":"unknown"}
+
+    def reveal(self, ref: CredentialReference) -> str:
+        result=self._exec(["get","password",ref.reference])
+        if result.returncode!=0: raise SecretBackendError(f"credential {ref.id!r} was not found in the vault ({result.stderr.strip() or 'no matching item'})")
+        return result.stdout.strip()
+
+    def set(self, ref: CredentialReference, value: str) -> dict[str, Any]:
+        item=self._find_item(ref.reference)
+        if item is None:
+            template=self._exec(["get","template","item"])
+            if template.returncode!=0: raise SecretBackendError("could not fetch item template from bw CLI")
+            body=json.loads(template.stdout)
+            login_template=self._exec(["get","template","item.login"])
+            login=json.loads(login_template.stdout) if login_template.returncode==0 else {}
+            login["password"]=value
+            body.update({"name":ref.reference,"type":1,"login":login})
+        else:
+            body=item; body.setdefault("login",{})["password"]=value
+        encode=self._run(["bw","encode"],input=json.dumps(body),capture_output=True,text=True,timeout=10)
+        if encode.returncode!=0: raise SecretBackendError("could not encode vault item for bw CLI")
+        verb="edit" if item is not None else "create"
+        target=[item["id"]] if item is not None else []
+        result=self._exec([verb,"item",*target,encode.stdout.strip()])
+        if result.returncode!=0: raise SecretBackendError(result.stderr.strip() or "vault write failed")
+        return {"id":ref.id,"source":self.name,"status":"updated" if item is not None else "created"}
 
 
 class OpenBaoBackend:
@@ -231,7 +314,7 @@ class SecretsManager:
 
     def get(self, id: str) -> dict[str, Any]:
         ref=self.registry.get(id); health=self._backend(ref).health(ref)
-        return {**health,"value":REDACTED}
+        return {**health,"owner":ref.owner,"value":REDACTED}
 
     def set(self, id: str, value: str) -> dict[str, Any]:
         ref=self.registry.get(id); backend=self._backend(ref)
@@ -249,7 +332,7 @@ class SecretsManager:
 
     def health(self, id: str) -> dict[str, Any]:
         ref=self.registry.get(id)
-        return self._backend(ref).health(ref)
+        return {**self._backend(ref).health(ref),"owner":ref.owner}
 
     def rotate(self, id: str, rotator: "ProviderRotator | None" = None) -> dict[str, Any]:
         self.registry.get(id)  # validates the credential id is actually configured

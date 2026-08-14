@@ -5,6 +5,12 @@ machines. It lets a client discover supported user intentions, prepare their
 real consequences, obtain narrowly scoped authority, execute once, verify the
 outcome, and receive a structured receipt.
 
+Known operations run in APX's deterministic Python execution plane without an
+AI provider. Identity, policy, validation, confirmation, execution,
+verification, compact results, and reusable procedures share one path across
+Python, CLI, MCP, Providers, OpenPower, and voice. See
+[`docs/deterministic-execution.md`](docs/deterministic-execution.md).
+
 APX Protocol 0.1 has four roles: Client, Provider, Node (a machine Provider),
 and optional Authority. Clients express intent. Providers establish truth about
 their Resources and always retain their business rules. OpenPower, MCP, HTTP,

@@ -12,7 +12,7 @@ class ServiceManagerInfo:
     mutations: tuple[str,...] = ()
 
 SYSTEMD=ServiceManagerInfo("systemd",True,True,("start","stop","restart"))
-LAUNCHD=ServiceManagerInfo("launchd",True,True,())
+LAUNCHD=ServiceManagerInfo("launchd",True,True,("start","stop","restart"))
 
 def manager_for(discovery: dict) -> ServiceManagerInfo | None:
     capabilities=discovery.get("capabilities",{})

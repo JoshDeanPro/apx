@@ -119,8 +119,13 @@ class PolicyEngine:
     def roles_for(self, actor_id: str) -> tuple[str, ...]:
         return self.actors.roles_for(actor_id)
 
-    def might_allow(self, actor_id: str, action: str) -> bool:
-        """Coarse, scope-agnostic pre-check for convenience UIs (e.g. MCP tool listing). Not authoritative -- evaluate() is."""
+    def might_allow(self, actor_id: str, action: str, extra_allow: tuple[ScopedRule, ...] = ()) -> bool:
+        """Coarse, scope-agnostic pre-check for convenience UIs and discovery (e.g. MCP tool
+        listing, APX.discover()). Not authoritative -- evaluate() is, and still runs at
+        invocation time. `extra_allow` (Mission grants, standalone Grants) is considered
+        the same way static role.allow rules are -- delegated authority must be visible
+        during discovery, not just enforced silently at execute() time, or a UI/agent
+        would never learn it can use a capability a Grant just gave it."""
         if not self.enabled: return True
         role_names = self.actors.roles_for(actor_id)
         roles = [self.roles[name] for name in role_names if name in self.roles]
@@ -130,4 +135,6 @@ class PolicyEngine:
         for role in roles:
             for rule in role.allow:
                 if _match_action(rule.action, action): return True
+        for rule in extra_allow:
+            if _match_action(rule.action, action): return True
         return False

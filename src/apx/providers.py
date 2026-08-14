@@ -47,6 +47,7 @@ class ProviderManifest:
     compatibility: tuple[str, ...] = (AXP_VERSION,)
     profiles: tuple[str, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
+    extensions: dict[str,str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.apx_version != AXP_VERSION: raise ValueError(f"unsupported APX version {self.apx_version!r}")
@@ -54,6 +55,8 @@ class ProviderManifest:
         if unknown: raise ValueError(f"invalid confirmation methods: {sorted(unknown)}")
         ids=[action.id for action in self.actions]
         if len(ids)!=len(set(ids)): raise ValueError("provider action ids must be unique")
+        from .personal import OPTIONAL_EXTENSIONS
+        if set(self.extensions)-OPTIONAL_EXTENSIONS: raise ValueError("unknown optional extension")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -62,7 +65,7 @@ class ProviderManifest:
             "actions":[item.to_dict() for item in self.actions],"authentication":list(self.authentication),
             "confirmation_methods":list(self.confirmation_methods),"capabilities":list(self.capabilities),
             "transports":list(self.transports),"compatibility":list(self.compatibility),
-            "profiles":list(self.profiles),"metadata":self.metadata,
+            "profiles":list(self.profiles),"metadata":self.metadata,"extensions":self.extensions,
         }
 
     @classmethod
@@ -76,14 +79,14 @@ class ProviderManifest:
             actions.append(ActionDefinition(**clean))
         resources=[]
         for raw in value.get("resources",[]):
-            clean={k:v for k,v in raw.items() if k not in {"apx","axp","type"}}
+            clean={k:v for k,v in raw.items() if k not in {"apx","axp","type","ref"}}
             for key in ("capabilities","groups","tags"):
                 if key in clean: clean[key]=tuple(clean[key])
             resources.append(Resource(**clean))
         return cls(provider,tuple(actions),tuple(resources),tuple(value.get("authentication",())),
             tuple(value.get("confirmation_methods",())),tuple(value.get("capabilities",("discover","prepare","execute","receipts"))),
             tuple(value.get("transports",())),value.get("apx_version",AXP_VERSION),value.get("manifest_version",TRANSPORT_VERSION),
-            tuple(value.get("compatibility",(AXP_VERSION,))),tuple(value.get("profiles",())),value.get("metadata",{}))
+            tuple(value.get("compatibility",(AXP_VERSION,))),tuple(value.get("profiles",())),value.get("metadata",{}),dict(value.get("extensions",{})))
 
 
 @dataclass
@@ -95,10 +98,13 @@ class ActionProvider:
     """Small SDK: define actions with decorators, then attach them to any APX registry."""
     def __init__(self, provider_id: str, name: str, *, url: str | None = None,
                  provenance: str = "native_provider", profiles: tuple[str, ...] = (),
-                 authentication: tuple[dict[str, Any], ...] = (), metadata: dict[str, Any] | None = None):
+                 authentication: tuple[dict[str, Any], ...] = (), metadata: dict[str, Any] | None = None,
+                 extensions: tuple[str,...] = ()):
         self.identity=ProviderIdentity(provider_id,name,url,provenance)
         self.profiles=profiles; self.authentication=authentication; self.metadata=metadata or {}
-        self.resources: list[Resource]=[]; self._actions: dict[str,ProviderAction]={}; self.receipts: dict[str,ActionReceipt]={}
+        from .personal import OPTIONAL_EXTENSIONS
+        if set(extensions)-OPTIONAL_EXTENSIONS: raise ValueError("unknown optional extension")
+        self.extensions={name:"0.1" for name in extensions}; self.resources: list[Resource]=[]; self._actions: dict[str,ProviderAction]={}; self.receipts: dict[str,ActionReceipt]={}
 
     def resource(self, resource: Resource) -> Resource:
         self.resources.append(resource); return resource
@@ -151,7 +157,7 @@ class ActionProvider:
         transports=({"type":"http","version":TRANSPORT_VERSION,"base_url":url,"protocol_endpoint":"/apx/v0.1"},) if url else ({"type":"local","version":TRANSPORT_VERSION},)
         confirmations=tuple(sorted({a.confirmation for a in self.actions}))
         return ProviderManifest(self.identity,tuple(a.definition() for a in self.actions),tuple(self.resources),
-            self.authentication,confirmations,transports=transports,profiles=self.profiles,metadata=self.metadata)
+            self.authentication,confirmations,transports=transports,profiles=self.profiles,metadata=self.metadata,extensions=self.extensions)
 
     def register(self, registry: ActionRegistry) -> None:
         for action in self.actions: registry.register(action)

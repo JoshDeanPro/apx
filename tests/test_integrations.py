@@ -133,7 +133,7 @@ class IntegrationTests(unittest.TestCase):
     def test_service_manager_capabilities_remain_native(self):
         systemd=manager_for({"capabilities":{"systemd":{"available":True},"launchd":{"available":False}}})
         launchd=manager_for({"capabilities":{"systemd":{"available":False},"launchd":{"available":True}}})
-        self.assertIn("restart",systemd.mutations); self.assertEqual(launchd.mutations,())
+        self.assertIn("restart",systemd.mutations); self.assertIn("restart",launchd.mutations)
 
     def test_plugins_available_not_configured_and_doctor_summary(self):
         with tempfile.TemporaryDirectory() as directory:

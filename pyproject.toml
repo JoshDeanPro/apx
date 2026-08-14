@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apx"
-version = "0.7.0"
+version = "0.8.0"
 description = "A universal, permissioned capability and Action fabric."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,11 +23,12 @@ apx = "apx.cli:main"
 where = ["src"]
 
 [tool.setuptools.data-files]
-"share/apx/spec/0.1" = ["spec/protocol.md", "spec/http.md", "spec/conformance.md", "spec/fabric.md", "spec/personal-context.md"]
+"share/apx/spec/0.1" = ["spec/README.md", "spec/protocol.md", "spec/http.md", "spec/conformance.md", "spec/fabric.md", "spec/discovery.md", "spec/grants.md", "spec/adapters.md", "spec/personal-context.md", "spec/optional-commercial-extensions.md"]
 "share/apx/spec/0.1/schemas" = [
     "spec/schemas/action-request.schema.json",
     "spec/schemas/action-result.schema.json",
     "spec/schemas/action-receipt.schema.json",
     "spec/schemas/provider-manifest.schema.json",
     "spec/schemas/resource.schema.json",
+    "spec/schemas/personalization-extensions.schema.json",
 ]

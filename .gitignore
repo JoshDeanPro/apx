@@ -8,5 +8,20 @@ build/
 .DS_Store
 .apx/
 apx.toml
+# Every JSON-overlay state store apx writes next to a config file (all
+# config_path.with_suffix(".<x>.json") in cloud.py/missions.py/blueprints.py/
+# grants.py/nodes.py/agents.py/identity.py/enrollment.py/credentials.py/
+# state.py) -- personal/project data, not source, and must never be
+# committed regardless of what the config file itself is named.
 *.groups.json
+*.missions.json
+*.blueprints.json
+*.grants.json
+*.nodes.json
+*.agents.json
+*.identity_links.json
+*.enrollment.json
+*.actor_credentials.json
+*.state.json
+*.json.lock
 !apx.example.toml
