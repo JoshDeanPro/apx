@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import uuid4
 
@@ -20,6 +21,10 @@ CONTENT_KINDS=("organic_recommendation","sponsored_recommendation","personalized
 class ContextEntry:
     id: str; category: str; value: Any; source: str="user"; sensitive: bool=False
     expires_at: str|None=None; providers: tuple[str,...]=(); disclosure: str="local_only"
+    confidence: float=1.0; created_at: str|None=None; updated_at: str|None=None
+    last_used: str|None=None; user_verified: bool=True
+    def __post_init__(self):
+        if not 0 <= self.confidence <= 1: raise ValueError("confidence must be between 0 and 1")
 
 
 @dataclass(frozen=True)
@@ -30,6 +35,9 @@ class PersonalizationPolicy:
     allowed_providers: tuple[str,...]=()
     minimum_compensation: dict[str,Any]|None=None
     sensitive_commercial: bool=False
+    allowed_commercial_categories: tuple[str,...]=()
+    blocked_commercial_categories: tuple[str,...]=()
+    inference_enabled: bool=False
 
 
 @dataclass(frozen=True)
@@ -54,6 +62,38 @@ class Campaign:
 
 
 @dataclass(frozen=True)
+class Reward:
+    id: str; provider: str; kind: str; value: dict[str,Any]; offer_id: str|None=None
+    terms: dict[str,Any]=field(default_factory=dict); expires_at: str|None=None
+
+
+@dataclass(frozen=True)
+class Consent:
+    subject: str; purposes: tuple[str,...]; providers: tuple[str,...]=(); categories: tuple[str,...]=()
+    granted: bool=False; expires_at: str|None=None; version: str="1.0"
+
+
+@dataclass(frozen=True)
+class RelevanceRequest:
+    provider: str; campaign_id: str; criteria: tuple[str,...]; purpose: str="content_selection"
+
+
+@dataclass(frozen=True)
+class RelevanceResult:
+    campaign_id: str; eligible: bool; score: float=0; variant_id: str|None=None
+    disclosed_claims: tuple[dict[str,Any],...]=()
+
+
+@dataclass(frozen=True)
+class RewardReceipt:
+    receipt_id: str; reward_id: str; provider: str; status: str; value: dict[str,Any]
+    timestamp: str; provider_reference: str|None=None
+
+
+OPTIONAL_EXTENSIONS=frozenset({"personalization","content","offers","rewards","campaigns","commerce"})
+
+
+@dataclass(frozen=True)
 class OpaqueFinancialResource:
     id: str; kind: str; provider: str; label: str; capabilities: tuple[str,...]
     credential_reference: str|None=None
@@ -73,14 +113,14 @@ class PersonalContextStore:
             for key in ("providers",): item[key]=tuple(item.get(key,()))
             entry=ContextEntry(**item); self.entries[entry.id]=entry
     def _save(self): atomic_write(self.path,json.dumps({"version":1,"policy":asdict(self.policy),"entries":[asdict(item) for item in self.entries.values()]},indent=2)+"\n")
-    def add(self,category: str,value: Any,*,sensitive: bool|None=None,source="user",expires_at=None,providers=(),disclosure="local_only"):
+    def add(self,category: str,value: Any,*,sensitive: bool|None=None,source="user",expires_at=None,providers=(),disclosure="local_only",confidence=1.0,user_verified=True):
         sensitive=category in SENSITIVE_CATEGORIES if sensitive is None else sensitive
-        entry=ContextEntry("ctx_"+uuid4().hex,category,value,source,sensitive,expires_at,tuple(providers),disclosure); self.entries[entry.id]=entry; self._save(); return entry
+        now=datetime.now(timezone.utc).isoformat(); entry=ContextEntry("ctx_"+uuid4().hex,category,value,source,sensitive,expires_at,tuple(providers),disclosure,confidence,now,now,None,user_verified); self.entries[entry.id]=entry; self._save(); return entry
     def update(self,entry_id: str,**changes):
-        current=self.entries[entry_id]; allowed={"category","value","source","sensitive","expires_at","providers","disclosure"}
+        current=self.entries[entry_id]; allowed={"category","value","source","sensitive","expires_at","providers","disclosure","confidence","user_verified"}
         if set(changes)-allowed: raise ValueError("unsupported Personal Context field")
         values=asdict(current); values.update(changes); values["providers"]=tuple(values.get("providers",()))
-        entry=ContextEntry(**values); self.entries[entry.id]=entry; self._save(); return entry
+        values["updated_at"]=datetime.now(timezone.utc).isoformat(); entry=ContextEntry(**values); self.entries[entry.id]=entry; self._save(); return entry
     def delete(self,entry_id): self.entries.pop(entry_id,None); self._save()
     def set_policy(self,policy: PersonalizationPolicy): self.policy=policy; self._save()
     def active(self):
@@ -110,9 +150,9 @@ class PersonalContextStore:
 
     def select_variant(self,variants: tuple[ContentVariant,...]) -> dict[str,Any]|None:
         if not self.policy.enabled: return None
-        terms=self._terms(); ranked=[(len(terms&set(item.labels)),item) for item in variants]
+        terms=self._terms(); ranked=[(len(terms&set(item.labels)),index,item) for index,item in enumerate(variants)]
         if not ranked: return None
-        score,item=max(ranked,key=lambda pair:pair[0]); return {"variant":item,"score":score,"disclosed":{}}
+        score,_,item=max(ranked,key=lambda pair:(pair[0],pair[1])); return {"variant":item,"score":score,"disclosed":{}}
 
     def match_offer(self,offer: Offer) -> dict[str,Any]:
         if not self.policy.enabled: return {"relevant":False,"reason":"personalization disabled","label":"sponsored" if offer.sponsored else "organic"}
@@ -120,6 +160,15 @@ class PersonalContextStore:
             if self.policy.commercial_content=="none": return {"relevant":False,"reason":"sponsored content disabled","label":"sponsored"}
             if offer.provider not in self.policy.allowed_providers: return {"relevant":False,"reason":"provider not allowed","label":"sponsored"}
             if self.policy.commercial_content=="compensated_only" and not offer.compensation: return {"relevant":False,"reason":"compensation required","label":"sponsored"}
+            minimum=self.policy.minimum_compensation
+            if minimum:
+                if not offer.compensation or offer.compensation.get("currency")!=minimum.get("currency"):
+                    return {"relevant":False,"reason":"minimum compensation currency not met","label":"sponsored"}
+                try: enough=Decimal(str(offer.compensation.get("amount")))>=Decimal(str(minimum.get("amount")))
+                except (InvalidOperation,TypeError): enough=False
+                if not enough: return {"relevant":False,"reason":"minimum compensation not met","label":"sponsored"}
+            if set(offer.categories)&set(self.policy.blocked_commercial_categories): return {"relevant":False,"reason":"category blocked","label":"sponsored"}
+            if self.policy.allowed_commercial_categories and not set(offer.categories)&set(self.policy.allowed_commercial_categories): return {"relevant":False,"reason":"category not allowed","label":"sponsored"}
         if any(category in SENSITIVE_CATEGORIES for category in offer.categories) and not self.policy.sensitive_commercial:
             return {"relevant":False,"reason":"sensitive commercial matching denied","label":"sponsored" if offer.sponsored else "organic"}
         score=len(self._terms()&{item.lower() for item in offer.categories})

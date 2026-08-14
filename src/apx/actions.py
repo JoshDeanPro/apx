@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -61,6 +62,8 @@ class RegisteredAction:
     postconditions: tuple[dict[str, Any], ...] = ()
     constraints: dict[str, Any] = None  # type: ignore[assignment]
     reversal_window: int | None = None
+    deterministic: bool = True
+    supports_dry_run: bool = False
 
     def _risk(self) -> str:
         if self.risk is not None: return self.risk
@@ -83,6 +86,7 @@ class RegisteredAction:
             expected_verification=self.expected_verification,remediation_action=self.remediation_action,
             retry=self.retry,preconditions=self.preconditions,postconditions=self.postconditions,
             constraints=self.constraints or {},reversal_window=self.reversal_window,
+            extensions={"execution":{"deterministic":self.deterministic,"supports_dry_run":self.supports_dry_run}},
         )
 
 
@@ -101,12 +105,53 @@ class ActionRegistry:
     def alias(self, old: str, canonical: str) -> None:
         if canonical not in self._actions: raise ValueError(f"unknown canonical action {canonical}")
         self._aliases[old]=canonical
+    def describe(self, *, namespaces: tuple[str,...]=(), predicate: Callable[[RegisteredAction],bool]|None=None, compact: bool=True) -> list[dict[str,Any]]:
+        values=[]
+        for action in self.list():
+            if namespaces and not any(action.name==item or action.name.startswith(item+".") for item in namespaces): continue
+            if predicate and not predicate(action): continue
+            definition=action.definition()
+            if compact:
+                values.append({"id":definition.id,"description":definition.description,"args":list(definition.input_schema.get("properties",{})),"required":list(definition.input_schema.get("required",())),"permission":list(definition.required_permissions) or [definition.id],"risk":definition.risk,"confirmation":definition.confirmation,"idempotent":definition.idempotent,"deterministic":action.deterministic})
+            else: values.append(definition.to_dict())
+        return values
 
 
 def _unit(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_.@:-]+", value or ""):
         raise ActionError("invalid service name")
     return value
+
+
+# Read-only ad hoc diagnostics only -- every entry is either unconditionally safe
+# (a bare status/inspect command with no destructive subcommand) or restricted to
+# an explicit subcommand allowlist. Value None means any args are accepted because
+# the command itself has no mutating mode. None of these commands can write,
+# delete, or execute arbitrary further commands. Extend deliberately, not by habit.
+EXEC_ALLOWLIST: dict[str, tuple[str, ...] | None] = {
+    "systemctl": ("status", "is-active", "is-enabled", "list-units", "list-timers"),
+    "journalctl": None,
+    "docker": ("ps", "logs", "stats", "inspect", "images"),
+    "podman": ("ps", "logs", "stats", "inspect", "images"),
+    "df": None, "du": None, "free": None, "uptime": None, "uname": None,
+    "ps": None, "top": None, "vmstat": None,
+    "ls": None, "cat": None, "head": None, "tail": None,
+    "git": ("status", "log", "diff", "branch", "show", "rev-parse"),
+    "ping": None, "dig": None, "nslookup": None, "ss": None, "netstat": None,
+    "caddy": ("version", "validate"),
+}
+
+# EXEC_ALLOWLIST only vets `args[0]` (the subcommand); everything after that was
+# passed straight to the process, so an allowlisted read-only subcommand could
+# still carry a destructive flag (`git branch -D main`, `journalctl
+# --vacuum-time=1s`) -- exactly the "cannot write, delete, or execute arbitrary
+# further commands" guarantee this allowlist exists to make. Checked against
+# EVERY argument (not just args[0]), for every command, regardless of whether
+# that command has a subcommand allowlist above.
+EXEC_DENIED_FLAG_PREFIXES: dict[str, tuple[str, ...]] = {
+    "journalctl": ("--vacuum", "--rotate", "--flush", "--sync", "--relinquish-var"),
+    "git": ("-D", "-d", "-M", "-m", "-f", "--delete", "--force", "--move"),
+}
 
 
 class CoreActions:
@@ -152,20 +197,86 @@ class CoreActions:
         if not info["capabilities"]["systemd"]["available"]:
             if not info["capabilities"]["launchd"]["available"]: raise ActionError(f"no supported service manager on {host}")
             r=transport_for(item).run(["launchctl","print",f"gui/{os.getuid()}/{unit}"])
-            if not r.ok: raise ActionError(r.stderr.strip() or f"launchd service {unit} was not found")
-            return {"host":host,"service":unit,"manager":"launchd","status":r.stdout}
+            if not r.ok:
+                # launchctl's own text for "genuinely not loaded" vs. every other way this
+                # probe can fail (permission error, transient launchd hiccup, ...) -- only
+                # the former is safe to report as state=inactive. Collapsing both (as this
+                # used to) let service.stop's pre-check see a broken probe as "already
+                # stopped" and skip the real `launchctl bootout`, silently no-op'ing a stop.
+                stderr=(r.stderr or "").lower()
+                if "could not find service" in stderr or "no such process" in stderr:
+                    return {"host":host,"service":unit,"manager":"launchd","state":"inactive","summary":f"{unit} is not loaded"}
+                raise ActionError(r.stderr.strip() or f"launchctl print failed for {unit} (exit {r.exit_code})")
+            raw_state=next((line.split("=",1)[1].strip() for line in r.stdout.splitlines() if line.strip().startswith("state =")),"unknown")
+            normalized=raw_state.lower()
+            # "running"/"not running" are the only two confirmed-exact launchctl strings;
+            # a loaded-but-idle on-demand/socket-activated job (its normal steady state,
+            # not a fault) reports something else entirely, e.g. "waiting" -- previously
+            # any such string fell through to "unknown", which post-control verification
+            # treats as neither active nor inactive and fails even a correct start/stop.
+            if normalized=="not running": state="inactive"
+            elif "running" in normalized: state="active"
+            elif "waiting" in normalized or "scheduled" in normalized: state="active"
+            else: state="unknown"
+            return {"host":host,"service":unit,"manager":"launchd","state":state,"substate":raw_state,"summary":f"{unit} is {raw_state}","raw_output":r.stdout}
         r=transport_for(item).run(["systemctl","show",unit,"--no-pager","--property=Id,Description,LoadState,ActiveState,SubState,UnitFileState,MainPID"])
         if r.exit_code != 0: raise ActionError(r.stderr.strip() or f"service {unit} was not found")
-        return {"host":host,"service":unit,"properties":dict(line.split("=",1) for line in r.stdout.splitlines() if "=" in line)}
+        properties=dict(line.split("=",1) for line in r.stdout.splitlines() if "=" in line)
+        return {"host":host,"service":unit,"manager":"systemd","state":properties.get("ActiveState","unknown"),"substate":properties.get("SubState"),"summary":f"{unit} is {properties.get('ActiveState','unknown')}","properties":properties}
 
     def service_control(self, verb: str, host: str, service: str) -> dict[str, Any]:
-        item=self.host(host); unit=_unit(service)
-        if not inspect_host(item)["capabilities"]["systemd"]["available"]:
-            raise ActionError(f"service.{verb} currently requires systemd; {host} does not provide it")
+        item=self.host(host); unit=_unit(service); info=inspect_host(item)
+        if info["capabilities"]["systemd"]["available"]: return self._service_control_systemd(verb,host,item,unit)
+        if info["capabilities"]["launchd"]["available"]: return self._service_control_launchd(verb,host,item,unit)
+        raise ActionError(f"service.{verb} requires systemd or launchd; {host} provides neither")
+
+    # Verification retries a few times with a short linear backoff before declaring a
+    # control command failed: `systemctl`/`launchctl` return as soon as the start/stop
+    # *job* completes, not once the unit has actually settled into its new state (a
+    # Type=notify unit, or one with slow shutdown hooks, can still read as
+    # "activating"/mid-transition on the very next probe despite genuinely succeeding).
+    # A transient probe failure (bug: launchd probes can themselves error) is retried
+    # too rather than treated as a verification failure.
+    _VERIFY_RETRIES=4
+    _VERIFY_DELAY_SECONDS=0.5
+
+    def _verify_service_state(self, host: str, unit: str, expected: str) -> dict[str, Any]:
+        last_state: dict[str, Any] | None = None; last_error: ActionError | None = None
+        for attempt in range(self._VERIFY_RETRIES):
+            if attempt: time.sleep(self._VERIFY_DELAY_SECONDS*attempt)
+            try: last_state=self.service_status(host,unit)
+            except ActionError as error: last_error=error; continue
+            if last_state.get("state")==expected: return last_state
+        if last_state is not None: return last_state
+        raise last_error  # every attempt failed to even read status
+
+    def _service_control_systemd(self, verb: str, host: str, item: Host, unit: str) -> dict[str, Any]:
+        before=self.service_status(host,unit); started=time.monotonic()
+        if verb in {"start","stop"} and ((verb=="start" and before.get("state")=="active") or (verb=="stop" and before.get("state")=="inactive")):
+            return {"host":host,"service":unit,"manager":"systemd","state":before["state"],"changed":False,"before":before["state"],"after":before["state"],"verified":True,"duration_ms":round((time.monotonic()-started)*1000,3),"summary":f"{unit} was already {before['state']}"}
         prefix=[] if item.transport != "local" else (["sudo","-n"] if hasattr(__import__('os'),'geteuid') and __import__('os').geteuid()!=0 else [])
         r=transport_for(item).run([*prefix,"systemctl",verb,unit],timeout=60)
         if not r.ok: raise ActionError(r.stderr.strip() or f"systemctl {verb} failed")
-        return self.service_status(host,unit)
+        expected="inactive" if verb=="stop" else "active"
+        after=self._verify_service_state(host,unit,expected)
+        if after.get("state")!=expected: raise ActionError(f"service {unit} {verb} completed but verification found state {after.get('state')}")
+        return {"host":host,"service":unit,"manager":"systemd","state":after["state"],"substate":after.get("substate"),"changed":True,"before":before.get("state"),"after":after["state"],"verified":True,"duration_ms":round((time.monotonic()-started)*1000,3),"summary":f"{unit} is {after['state']}"}
+
+    def _service_control_launchd(self, verb: str, host: str, item: Host, unit: str) -> dict[str, Any]:
+        before=self.service_status(host,unit); started=time.monotonic()
+        if verb in {"start","stop"} and ((verb=="start" and before.get("state")=="active") or (verb=="stop" and before.get("state")=="inactive")):
+            return {"host":host,"service":unit,"manager":"launchd","state":before["state"],"changed":False,"before":before["state"],"after":before["state"],"verified":True,"duration_ms":round((time.monotonic()-started)*1000,3),"summary":f"{unit} was already {before['state']}"}
+        domain=f"gui/{os.getuid()}/{unit}"
+        # bootout fully unloads (a clean stop); kickstart starts if not running,
+        # -k forces a fresh instance for restart. No shell metacharacter surface --
+        # argv-only, same guarantee CoreActions gives every other transport.run() call.
+        argv={"start":["launchctl","kickstart",domain],"stop":["launchctl","bootout",domain],"restart":["launchctl","kickstart","-k",domain]}[verb]
+        r=transport_for(item).run(argv,timeout=30)
+        if not r.ok: raise ActionError(r.stderr.strip() or f"launchctl {verb} failed")
+        expected="inactive" if verb=="stop" else "active"
+        after=self._verify_service_state(host,unit,expected)
+        if after.get("state")!=expected: raise ActionError(f"service {unit} {verb} completed but verification found state {after.get('state')}")
+        return {"host":host,"service":unit,"manager":"launchd","state":after["state"],"substate":after.get("substate"),"changed":True,"before":before.get("state"),"after":after["state"],"verified":True,"duration_ms":round((time.monotonic()-started)*1000,3),"summary":f"{unit} is {after['state']}"}
 
     def logs_read(self, host: str, service: str | None = None, lines: int = 100) -> dict[str, Any]:
         item=self.host(host); info=inspect_host(item)
@@ -229,6 +340,20 @@ class CoreActions:
         if not r.ok: raise ActionError(r.stderr.strip() or "shutdown failed")
         return {"host":host,"requested":True}
 
+    def exec_diagnostic(self, host: str, command: str, args: list[str] | None = None) -> dict[str, Any]:
+        item=self.host(host); args=list(args or [])
+        if command not in EXEC_ALLOWLIST:
+            raise ActionError(f"{command!r} is not in the diagnostic exec allowlist: {', '.join(sorted(EXEC_ALLOWLIST))}")
+        allowed_subcommands=EXEC_ALLOWLIST[command]
+        if allowed_subcommands is not None and (not args or args[0] not in allowed_subcommands):
+            raise ActionError(f"{command} requires its first argument to be one of: {', '.join(allowed_subcommands)}")
+        denied_prefixes=EXEC_DENIED_FLAG_PREFIXES.get(command,())
+        offending=[arg for arg in args if any(arg.startswith(prefix) for prefix in denied_prefixes)]
+        if offending:
+            raise ActionError(f"{command} does not permit {', '.join(sorted(set(offending)))} through the diagnostic exec allowlist")
+        r=transport_for(item).run([command,*args],timeout=20)
+        return {"host":host,"command":command,"args":args,"exit_code":r.exit_code,"ok":r.ok,"stdout":r.stdout[:12000],"stderr":r.stderr[:2000]}
+
 
 def build_registry(core: CoreActions) -> ActionRegistry:
     r=ActionRegistry(); obj=lambda props,required=[]:{"type":"object","properties":props,"required":required,"additionalProperties":False}; s={"type":"string"}
@@ -249,8 +374,14 @@ def build_registry(core: CoreActions) -> ActionRegistry:
       ("project.inspect","Inspect a related project",core.project_inspect,obj({"project":s},["project"]),True,False),
       ("project.discover","Discover repositories and project manifests",core.project_discover,obj({"host":s,"roots":{"type":"array","items":s}},["host"]),True,False),
       ("host.shutdown","Shut down a host",core.host_shutdown,obj({"host":s},["host"]),False,True),
+      ("host.exec","Run an allowlisted read-only diagnostic command on a host (see actions.EXEC_ALLOWLIST) -- argv-only, no shell parsing, no destructive commands",core.exec_diagnostic,obj({"host":s,"command":s,"args":{"type":"array","items":s}},["host","command"]),True,False),
     ]
-    for spec in specs: r.register(RegisteredAction(*spec))
+    for spec in specs:
+        action=RegisteredAction(*spec)
+        if action.name.startswith("service."):
+            action=RegisteredAction(*spec,output_schema={"type":"object"},risk="read" if action.read_only else "account_change",confirmation="none" if action.read_only else "confirm",idempotent=action.name in {"service.status","service.inspect","service.list","service.start","service.stop"},required_permissions=("service.read" if action.read_only else action.name,),resource_type="service",expected_verification="service state matches requested transition" if not action.read_only else None,retry="safe" if action.read_only else "idempotency_required" if action.name in {"service.start","service.stop"} else "never")
+        elif action.name=="file.sync": action=RegisteredAction(*spec,supports_dry_run=True,idempotent=True,risk="low_change")
+        r.register(action)
     r.alias("host.info","host.inspect")
     return r
 

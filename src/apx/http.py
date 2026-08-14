@@ -10,7 +10,7 @@ import httpx
 
 DEFAULT_TIMEOUT=30.0
 MAX_RESPONSE_BYTES=1024*1024
-USER_AGENT="OpenPower/0.2.0 APX/0.7.0 (+https://openpower.one)"
+USER_AGENT="OpenPower/0.3.0 APX/0.8.0 (+https://openpower.dev)"
 
 
 class HTTPFailure(RuntimeError):

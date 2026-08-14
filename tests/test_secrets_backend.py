@@ -8,6 +8,7 @@ from apx import APX
 from apx.credentials import (
     CredentialReference, CredentialRegistry, EnvironmentBackend, KeychainBackend,
     MockRotator, OpenBaoBackend, RotationWorkflow, SecretBackendError, SecretsManager,
+    VaultwardenBackend,
 )
 
 
@@ -60,6 +61,59 @@ class KeychainBackendTests(unittest.TestCase):
         with self.assertRaises(SecretBackendError): backend.health(ref)
 
 
+class VaultwardenBackendTests(unittest.TestCase):
+    def test_requires_unlocked_session(self):
+        backend=VaultwardenBackend(run=lambda argv,**kw: None)
+        ref=CredentialReference("porkbun","dns","vaultwarden","porkbun-token")
+        with patch.dict("os.environ",{},clear=False):
+            os.environ.pop("BW_SESSION",None)
+            with self.assertRaises(SecretBackendError): backend.reveal(ref)
+
+    def test_health_and_reveal_use_bw_cli_without_new_dependency(self):
+        from types import SimpleNamespace
+        calls=[]
+        def fake_run(argv,**kwargs):
+            calls.append(argv)
+            if argv[:2]==["bw","get"] and argv[2]=="item":
+                return SimpleNamespace(returncode=0,stdout='{"success":true,"data":{"id":"item-1","name":"porkbun-token","login":{"password":"kv-value"}}}',stderr="")
+            if argv[:3]==["bw","get","password"]:
+                return SimpleNamespace(returncode=0,stdout="kv-value\n",stderr="")
+            return SimpleNamespace(returncode=1,stdout="",stderr="not found")
+        backend=VaultwardenBackend(run=fake_run)
+        ref=CredentialReference("porkbun","dns","vaultwarden","porkbun-token")
+        with patch.dict("os.environ",{"BW_SESSION":"unlocked-session-token"}):
+            self.assertTrue(backend.health(ref)["available"])
+            self.assertEqual(backend.reveal(ref),"kv-value")
+        self.assertTrue(all(argv[0]=="bw" for argv in calls))
+        self.assertTrue(all("--session" in argv for argv in calls))
+        self.assertTrue(all("unlocked-session-token" in argv for argv in calls))
+
+    def test_set_edits_existing_item(self):
+        from types import SimpleNamespace
+        calls=[]
+        def fake_run(argv,**kwargs):
+            calls.append(argv)
+            if argv[:2]==["bw","get"] and argv[2]=="item":
+                return SimpleNamespace(returncode=0,stdout='{"success":true,"data":{"id":"item-1","name":"porkbun-token","login":{"password":"old"}}}',stderr="")
+            if argv[:2]==["bw","encode"]:
+                return SimpleNamespace(returncode=0,stdout="ZW5jb2RlZA==\n",stderr="")
+            if argv[:2]==["bw","edit"]:
+                return SimpleNamespace(returncode=0,stdout="",stderr="")
+            return SimpleNamespace(returncode=1,stdout="",stderr="unexpected")
+        backend=VaultwardenBackend(run=fake_run)
+        ref=CredentialReference("porkbun","dns","vaultwarden","porkbun-token")
+        with patch.dict("os.environ",{"BW_SESSION":"unlocked-session-token"}):
+            result=backend.set(ref,"new-value")
+        self.assertEqual(result["status"],"updated")
+
+    def test_bw_not_installed_becomes_a_secret_backend_error(self):
+        def missing(argv,**kwargs): raise FileNotFoundError("bw")
+        backend=VaultwardenBackend(run=missing)
+        ref=CredentialReference("porkbun","dns","vaultwarden","porkbun-token")
+        with patch.dict("os.environ",{"BW_SESSION":"unlocked-session-token"}):
+            with self.assertRaises(SecretBackendError): backend.reveal(ref)
+
+
 class OpenBaoBackendTests(unittest.TestCase):
     def test_read_only_status_health_and_reveal_use_fake_transport(self):
         responses={
@@ -98,6 +152,16 @@ class SecretsManagerTests(unittest.TestCase):
         manager=SecretsManager(registry)
         with patch.dict("os.environ",{"APX_TEST_TOKEN":"super-secret"}):
             self.assertEqual(manager.reveal("token")["value"],"super-secret")
+
+    def test_owner_is_surfaced_by_get_and_health_but_not_required(self):
+        registry=CredentialRegistry.from_config({
+            "owned":{"source":"environment","reference":"APX_TEST_TOKEN","owner":"human:ethan"},
+            "unowned":{"source":"environment","reference":"APX_TEST_TOKEN"},
+        })
+        manager=SecretsManager(registry)
+        self.assertEqual(manager.get("owned")["owner"],"human:ethan")
+        self.assertEqual(manager.health("owned")["owner"],"human:ethan")
+        self.assertIsNone(manager.get("unowned")["owner"])
 
 
 class RotationWorkflowTests(unittest.TestCase):

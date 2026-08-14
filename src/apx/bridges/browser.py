@@ -47,6 +47,28 @@ class PlaywrightDriver:
     def close(self): self._browser.close(); self._runtime.stop()
 
 
+class LazyPlaywrightDriver:
+    """Defers actually launching a browser process until the first real call.
+
+    `BrowserBridge(PlaywrightDriver(...))` used to launch Chromium the moment a
+    Node/APX config declared the browser bridge -- meaning every `apx` command,
+    including ones with nothing to do with a browser, paid for a real Chromium
+    startup (multiple seconds) just from constructing the config. This wrapper
+    satisfies the same `BrowserDriver` protocol but only pays that cost the
+    first time `browser.open`/`.inspect`/`.click`/`form.fill` is actually used."""
+    def __init__(self, *, headless: bool = True):
+        self._headless = headless; self._driver: PlaywrightDriver | None = None
+    def _ensure(self) -> PlaywrightDriver:
+        if self._driver is None: self._driver = PlaywrightDriver(headless=self._headless)
+        return self._driver
+    def open(self, url): return self._ensure().open(url)
+    def structured_state(self): return self._ensure().structured_state()
+    def click(self, reference): return self._ensure().click(reference)
+    def fill(self, fields): return self._ensure().fill(fields)
+    def close(self) -> None:
+        if self._driver is not None: self._driver.close(); self._driver = None
+
+
 @dataclass
 class BrowserMetrics:
     tool_calls: int=0; reasoning_calls: int=0; retries: int=0; cache_hits: int=0

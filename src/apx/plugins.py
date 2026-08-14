@@ -128,6 +128,9 @@ class PluginManager:
         from .integrations.databases.plugin import Plugin as DatabasePlugin
         self._setup("databases",DatabasePlugin())
         self.health[-1].update(configured=bool(document.get("databases")),status="ready" if document.get("databases") else "discovery_only")
+        from .integrations.drift_plugin import Plugin as DriftPlugin
+        self._setup("drift",DriftPlugin())
+        self.health[-1].update(configured=True,status="ready")
         discord=settings.get("discord_webhook",{})
         if discord.get("enabled",False):
             try:

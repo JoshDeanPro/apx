@@ -81,6 +81,24 @@ class StructuredError:
         return cls(**clean)
 
 
+def resource_ref(kind: str, id: str) -> str:
+    """Canonical `apx://kind/id` address for a Resource. Additive addressing
+    convention layered on top of existing bare string ids -- registries and
+    stores still key by `id` alone; `ref` is how one is named/addressed across
+    a Grant, a discovery response, or another APX system, without requiring
+    every existing resource id in the codebase to be migrated to a URI."""
+    if not kind or not id: raise ValueError("resource_ref requires a non-empty kind and id")
+    if "/" in kind: raise ValueError(f"resource kind {kind!r} must not contain '/'")
+    return f"apx://{kind}/{id}"
+
+
+def parse_resource_ref(ref: str) -> tuple[str, str]:
+    if not ref.startswith("apx://"): raise ValueError(f"not an APX resource ref: {ref!r}")
+    kind, _, rest = ref[len("apx://"):].partition("/")
+    if not kind or not rest: raise ValueError(f"malformed APX resource ref: {ref!r}; expected apx://kind/id")
+    return kind, rest
+
+
 @dataclass(frozen=True)
 class Resource:
     id: str
@@ -92,8 +110,11 @@ class Resource:
     tags: tuple[str, ...] = ()
     version: "VersionInfo | None" = None
 
+    @property
+    def ref(self) -> str: return resource_ref(self.kind, self.id)
+
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":APX_PROTOCOL_VERSION,"type":"resource",**asdict(self)}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"resource","ref":self.ref,**asdict(self)}
 
 
 @dataclass(frozen=True)
@@ -352,6 +373,8 @@ class ActionResult:
     target: dict[str, Any] = field(default_factory=dict)
     status: str = "completed"
     receipt: ActionReceipt | None = None
+    execution: dict[str, Any] | None = None
+    needs_reasoning: bool = False
 
     def __post_init__(self) -> None:
         if self.status not in ACTION_STATUSES: raise ValueError(f"invalid status {self.status!r}; expected one of {ACTION_STATUSES}")
@@ -363,7 +386,19 @@ class ActionResult:
     def host(self) -> str | None: return self.target.get("host")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"apx":APX_PROTOCOL_VERSION,"type":"action.result","action":self.action,"request_id":self.request_id,"target":self.target,"ok":self.ok,"status":self.status,"result":self.result,"error":self.error.to_dict() if self.error else None,"receipt":self.receipt.to_dict() if self.receipt else None,"data":self.result,"host":self.host}
+        return {"apx":APX_PROTOCOL_VERSION,"type":"action.result","action":self.action,"request_id":self.request_id,"target":self.target,"ok":self.ok,"status":self.status,"result":self.result,"error":self.error.to_dict() if self.error else None,"receipt":self.receipt.to_dict() if self.receipt else None,"execution":self.execution,"needs_reasoning":self.needs_reasoning,"data":self.result,"host":self.host}
+
+    def compact(self) -> dict[str, Any]:
+        """Small agent/UI shape; omits aliases, nulls, and raw diagnostics."""
+        result=self.result
+        if isinstance(result,dict) and result.get("summary"):
+            useful=("summary","host","service","manager","state","substate","changed","before","after","verified","duration_ms","warnings")
+            result={key:result[key] for key in useful if key in result}
+        value={"ok":self.ok,"action":self.action,"status":self.status,"target":self.target or None,
+            "result":result,"error":self.error.to_dict() if self.error else None,
+            "execution":self.execution,"needs_reasoning":self.needs_reasoning}
+        if self.receipt: value["receipt_id"]=self.receipt.receipt_id
+        return {key:item for key,item in value.items() if item is not None}
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ActionResult":
@@ -375,7 +410,7 @@ class ActionResult:
             raw={k:v for k,v in value["receipt"].items() if k not in {"apx","axp","type"}}
             if "side_effects" in raw: raw["side_effects"]=tuple(raw["side_effects"])
             receipt=ActionReceipt(**raw)
-        return cls(action=value["action"],ok=value["ok"],result=value.get("result"),error=error,request_id=value.get("request_id"),target=value.get("target",{}),status=value.get("status","completed"),receipt=receipt)
+        return cls(action=value["action"],ok=value["ok"],result=value.get("result"),error=error,request_id=value.get("request_id"),target=value.get("target",{}),status=value.get("status","completed"),receipt=receipt,execution=value.get("execution"),needs_reasoning=value.get("needs_reasoning",False))
 
 
 @dataclass(frozen=True)

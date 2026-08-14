@@ -31,14 +31,36 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config",help="TOML configuration path")
     parser.add_argument("--yes",action="store_true",help="confirm destructive actions")
     parser.add_argument("--actor",help="acting identity, e.g. agent:claude:mac (defaults to the configured default_actor)")
-    sub=parser.add_subparsers(dest="command",required=True)
+    sub=parser.add_subparsers(dest="command",required=False)
     init=sub.add_parser("init",help="discover this machine and create minimal configuration")
     init.add_argument("--output",default="apx.toml")
     init.add_argument("--host",action="append",default=[],metavar="NAME=SSH_TARGET")
     init.add_argument("--non-interactive",action="store_true")
     init.add_argument("--force",action="store_true")
     sub.add_parser("doctor",help="diagnose configuration, hosts, plugins, and MCP")
+    sub.add_parser("menu",help="interactive terminal UI: arrow keys/j,k move, enter select, esc back, / filter")
+    sub.add_parser("start",help="open the interactive TUI (same as running apx with no arguments)")
+    serve=sub.add_parser("serve",help="expose the full action registry over HTTP (the same Action Provider protocol any apx system speaks) -- for a website/app to discover and call")
+    serve.add_argument("--host",default="127.0.0.1"); serve.add_argument("--port",type=int,default=8420)
     sub.add_parser("plugins",help="list plugin metadata and health")
+    sub.add_parser("fleet",help="parallel health probe over every configured Host and every zero-argument *.status Action")
+    agent=sub.add_parser("agent",help="set up a Standing Agent (the palis-autopilot pattern: a coding agent run to completion, on a loop, under systemd/launchd)")
+    agent.add_argument("verb",choices=["plan","setup","list","show","logs","remove"])
+    agent.add_argument("name",nargs="?")
+    agent.add_argument("--host"); agent.add_argument("--repo")
+    agent.add_argument("--description",default=""); agent.add_argument("--project-description",default="")
+    agent.add_argument("--user",default="root")
+    from .agents import AGENT_RUNTIMES
+    agent.add_argument("--runtime",default="claude",choices=list(AGENT_RUNTIMES))
+    agent.add_argument("--model",default="opus"); agent.add_argument("--effort",default="medium")
+    agent.add_argument("--timeout",type=int,default=7200); agent.add_argument("--idle-gap",type=int,default=1800)
+    agent.add_argument("--status-command"); agent.add_argument("--test-command")
+    agent.add_argument("--force",action="store_true"); agent.add_argument("--enable",action="store_true"); agent.add_argument("--start",action="store_true")
+    agent.add_argument("--purge",action="store_true")
+    agent.add_argument("--lines",type=int,default=100)
+    environment=sub.add_parser("environment",help="ingest MCP servers already configured elsewhere (~/.claude.json, ~/.codex/config.toml, ...)")
+    environment.add_argument("verb",choices=["sources","ingest"])
+    environment.add_argument("source",nargs="?",help="source id (not needed for `sources`), e.g. claude_code, codex")
     plugin=sub.add_parser("plugin",help="inspect a plugin"); plugin.add_argument("name")
     sub.add_parser("relationships",help="list resource relationships")
     sub.add_parser("resources",help="list APX resources")
@@ -46,6 +68,15 @@ def main(argv: list[str] | None = None) -> int:
     group=sub.add_parser("group",help="inspect or change a group"); group.add_argument("verb",choices=["show","add","remove"]); group.add_argument("name"); group.add_argument("resource",nargs="?")
     create=sub.add_parser("create",help="scaffold an extension"); create.add_argument("kind",choices=["plugin","action","adapter"]); create.add_argument("name"); create.add_argument("--output",default=".")
     run=sub.add_parser("run",help="run any configured APX action"); run.add_argument("action"); run.add_argument("--input",default="{}",help="JSON object of action inputs")
+    run.add_argument("--auth-context",help="JSON object asserting an authenticated actor context, required by some provider (e.g. browser.*) consequential actions -- e.g. '{\"principal_id\":\"human:ethan\"}'")
+    update=sub.add_parser("update",help="check for or apply an apx git update (fast-forward only, reinstalls only if dependencies changed)")
+    update.add_argument("verb",nargs="?",default="apply",choices=["check","apply"])
+    update.add_argument("--no-reinstall",dest="reinstall",action="store_false",default=True)
+    sub.add_parser("version",help="report the running apx version and git commit")
+    install=sub.add_parser("install",help="install APX as a native capability inside a supported AI coding agent (slash command / skill -- not MCP)")
+    install.add_argument("agent",choices=["claude-code","codex","kimi-code","deepseek-code","hermes"])
+    install.add_argument("--output",default=".",help="project root to install project-scoped config into (ignored with --global)")
+    install.add_argument("--global",dest="global_scope",action="store_true",help="install for this user across all projects, where the agent supports it")
     sub.add_parser("hosts",help="list configured hosts")
     inspect=sub.add_parser("inspect",help="discover a host"); inspect.add_argument("host")
     status=sub.add_parser("status",help="read host status"); status.add_argument("host")
@@ -88,9 +119,44 @@ def main(argv: list[str] | None = None) -> int:
     task.add_argument("--resource",action="append",default=[],dest="related_resources",metavar="RESOURCE")
     task.add_argument("--dependency",action="append",default=[],dest="dependencies",metavar="TASK_ID")
     task.add_argument("--proposals-json",help="JSON array of {title,reason,...} proposal objects, for `task propose`")
+    blueprint=sub.add_parser("blueprint",help="manage Blueprints (versioned, composable action graphs)")
+    blueprint.add_argument("verb",choices=["list","search","show","plan","apply","status","upgrade"])
+    blueprint.add_argument("id",nargs="?",help="blueprint name/alias (not needed for list/search/status)")
+    blueprint.add_argument("--version"); blueprint.add_argument("--project"); blueprint.add_argument("--category"); blueprint.add_argument("--tag")
+    blueprint.add_argument("--query",default="")
+    blueprint.add_argument("--inputs-json",help="JSON object of Blueprint inputs, for plan/apply/upgrade")
+    discover=sub.add_parser("discover",help="identity-aware, policy-filtered capability discovery (the DISCOVER protocol operation)")
+    discover.add_argument("subject",nargs="?",help="actor id to discover as (defaults to the configured default actor)")
+    discover.add_argument("--namespace",action="append",default=[],dest="namespaces",metavar="NAMESPACE")
+    discover.add_argument("--full",action="store_true",help="return full action definitions instead of the compact discovery shape")
+    grant=sub.add_parser("grant",help="issue/inspect/revoke Grants -- standalone, independently-expiring delegated authority")
+    grant.add_argument("verb",choices=["issue","list","show","revoke"])
+    grant.add_argument("id",nargs="?",help="grant id (not needed for issue/list)")
+    grant.add_argument("--subject",help="actor id the grant is issued to, for issue/list")
+    grant.add_argument("--action",action="append",default=[],dest="actions",metavar="ACTION",help="action name or namespace.* pattern, for issue")
+    grant.add_argument("--resource",action="append",default=[],dest="resources",metavar="APX_REF",help="apx://kind/id resource ref, for issue")
+    grant.add_argument("--constraints-json",help="JSON object of extra scope constraints, for issue")
+    grant.add_argument("--reason",default="")
+    grant.add_argument("--expires-at",help="ISO-8601 timestamp; omit for a grant that does not expire")
+    grant.add_argument("--include-expired",action="store_true")
+    adapter=sub.add_parser("adapter",help="APX Adapter conformance")
+    adapter.add_argument("verb",choices=["test"])
+    adapter.add_argument("--url",help="test a remote provider by discovery URL (its origin, e.g. https://acme.example)")
+    adapter.add_argument("--provider",help="test a locally-registered provider by id")
+    adapter.add_argument("--bridge",help="test a locally-registered Bridge by id")
+    node=sub.add_parser("node",help="hardware-aware Node profiles and per-Node effective permissions")
+    node.add_argument("verb",choices=["list","show","refresh","permissions"])
+    node.add_argument("host",nargs="?",help="host name (not needed for list)")
+    node.add_argument("--subject",help="actor id to evaluate permissions for, for `node permissions` (defaults to the caller)")
+    search=sub.add_parser("search",help="deterministic local search over Nodes/Projects/Actions/Blueprints/Connections/Grants -- no AI")
+    search.add_argument("query")
+    search.add_argument("--kind",action="append",default=[],dest="kinds",metavar="KIND")
+    search.add_argument("--limit",type=int,default=20)
     work=sub.add_parser("work",help="what is this actor currently supposed to be doing"); work.add_argument("verb",choices=["current"]); work.add_argument("subject",nargs="?")
     auth=sub.add_parser("auth",help="authentication provider status / authenticate")
     auth.add_argument("verb",choices=["status","authenticate"]); auth.add_argument("--method",default="local"); auth.add_argument("--token",help="bearer token/JWT, for --method openpower")
+    link=sub.add_parser("link",help="link this machine to your OpenPower account (shortcut for `identity device-link`)")
+    link.add_argument("--agent-name",help="shown to the human approving this link, default: 'APX on <hostname>'")
     identity=sub.add_parser("identity",help="manage Principals, OpenPower links, enrollment, and device pairing")
     identity.add_argument("verb",choices=["list","show","link","unlink","enroll-request","enroll-status","enroll-cancel","enroll-approve","enroll-deny","pair-create","pair-claim","device-link"])
     identity.add_argument("target",nargs="?",help="subject id / enrollment request id / pairing code, depending on verb")
@@ -104,7 +170,26 @@ def main(argv: list[str] | None = None) -> int:
     credential.add_argument("id",nargs="?")
     credential.add_argument("--principal"); credential.add_argument("--type",default="opaque_bearer"); credential.add_argument("--issuer",default="local")
     credential.add_argument("--expires"); credential.add_argument("--fingerprint"); credential.add_argument("--secret-ref")
+    parser.add_argument("--doctor",action="store_true",help="shortcut for `apx doctor`")
+    parser.add_argument("--add-keys",action="store_true",help="shortcut: open the TUI directly on Credentials, to add an API key/token")
     args=parser.parse_args(argv)
+    if args.doctor:
+        from .doctor import diagnose
+        result=diagnose(args.config); output(result); return 0 if result["ok"] else 1
+    if args.command is None or args.command=="start":
+        # No subcommand (or the friendlier `apx start`) opens the TUI -- the same
+        # idea as OpenClaw's bare invocation dropping you straight into its wizard,
+        # not a scripted-only tool that only does something once you already know
+        # the exact subcommand. Falls back to --help when there's no real
+        # terminal to draw into (piped/scripted invocation), since curses cannot
+        # run without one.
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            try: cloud=APX(args.config)
+            except Exception as error: output({"ok":False,"error":str(error)}); return 1
+            from .tui import run as run_menu
+            return run_menu(cloud,args.actor,start_screen="credentials" if args.add_keys else None)
+        parser.print_help()
+        return 0
     if args.command=="init":
         from .setup import initialize
         try: output(initialize(args.output,ssh_hosts=args.host,interactive=not args.non_interactive,force=args.force)); return 0
@@ -116,9 +201,59 @@ def main(argv: list[str] | None = None) -> int:
         from .scaffold import create
         try: output(create(args.kind,args.name,args.output)); return 0
         except Exception as error: output({"ok":False,"error":str(error)}); return 1
+    if args.command=="version":
+        from .selfupdate import version_info
+        output(version_info()); return 0
+    if args.command=="update":
+        from .selfupdate import UpdateError, apply_update, check_for_updates
+        if args.verb=="check": output(check_for_updates()); return 0
+        try: output(apply_update(reinstall=args.reinstall)); return 0
+        except UpdateError as error: output({"ok":False,"error":str(error)}); return 1
+    if args.command=="install":
+        from pathlib import Path as _Path
+        from .agent_install import install as _install_agent
+        try: output(_install_agent(args.agent,root=_Path(args.output),global_scope=args.global_scope)); return 0
+        except ValueError as error: output({"ok":False,"error":str(error)}); return 2
+        except Exception as error: output({"ok":False,"error":str(error)}); return 1
     cloud=APX(args.config)
+    if args.command=="menu":
+        from .tui import run as run_menu
+        return run_menu(cloud,args.actor)
     if args.command=="plugins":
         output({"plugins":[cloud.plugin_manager.inspect(name) for name in sorted(cloud.plugin_manager.metadata)]}); return 0
+    if args.command=="fleet":
+        result=cloud.run("fleet.health",actor=args.actor); output(result.to_dict()); return 0 if result.ok and result.result.get("healthy") else 1
+    if args.command=="agent":
+        v=args.verb
+        common=dict(description=args.description,project_description=args.project_description,user=args.user,runtime=args.runtime,
+            model=args.model,effort=args.effort,timeout=args.timeout,idle_gap=args.idle_gap,
+            status_command=args.status_command,test_command=args.test_command)
+        if v=="list": result=cloud.run("agent.list",actor=args.actor,host=args.host)
+        elif not args.name: output({"ok":False,"error":f"an agent name is required for agent {v}"}); return 2
+        elif v=="show": result=cloud.run("agent.inspect",actor=args.actor,name=args.name)
+        elif v=="logs": result=cloud.run("agent.logs",actor=args.actor,name=args.name,lines=args.lines)
+        elif v=="remove":
+            if not args.yes: output({"ok":False,"error":"agent remove requires --yes"}); return 2
+            action=cloud.actions.get("agent.remove")
+            result=cloud.run("agent.remove",actor=args.actor,confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"cli:agent.remove:{args.name}"},name=args.name,purge=args.purge)
+        elif v=="plan":
+            if not (args.host and args.repo): output({"ok":False,"error":"--host and --repo are required for agent plan"}); return 2
+            result=cloud.run("agent.plan",actor=args.actor,name=args.name,host=args.host,repo=args.repo,**common)
+        else:
+            if not (args.host and args.repo): output({"ok":False,"error":"--host and --repo are required for agent setup"}); return 2
+            if not args.yes: output({"ok":False,"error":"agent setup requires --yes"}); return 2
+            action=cloud.actions.get("agent.setup")
+            result=cloud.run("agent.setup",actor=args.actor,confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"cli:agent.setup:{args.name}"},
+                name=args.name,host=args.host,repo=args.repo,force=args.force,enable=args.enable,start=args.start,**common)
+        output(result.to_dict()); return 0 if result.ok else 1
+    if args.command=="environment":
+        if args.verb=="sources": result=cloud.run("environment.sources",actor=args.actor)
+        else:
+            if not args.source: output({"ok":False,"error":"a source id is required for environment ingest"}); return 2
+            if not args.yes: output({"ok":False,"error":"environment ingest requires --yes"}); return 2
+            action=cloud.actions.get("environment.ingest")
+            result=cloud.run("environment.ingest",actor=args.actor,confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"cli:environment.ingest:{args.source}"},source=args.source)
+        output(result.to_dict()); return 0 if result.ok else 1
     if args.command=="plugin":
         try: output(cloud.plugin_manager.inspect(args.name)); return 0
         except KeyError as error: output({"ok":False,"error":str(error)}); return 1
@@ -133,12 +268,17 @@ def main(argv: list[str] | None = None) -> int:
         try:
             inputs=json.loads(args.input)
             if not isinstance(inputs,dict): raise ValueError("--input must be a JSON object")
+            auth_context=json.loads(args.auth_context) if args.auth_context else None
             action=cloud.actions.get(args.action)
             if action.destructive and not args.yes: output({"action":args.action,"ok":False,"error":"destructive action requires --yes"}); return 2
-            result=cloud.run(args.action,actor=args.actor,**inputs); output(result.to_dict()); return result_exit(result)
+            confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"cli:{action.name}"} if args.yes and action.confirmation!="none" else None
+            result=cloud.run(args.action,actor=args.actor,confirmation=confirmation,auth_context=auth_context,**inputs); output(result.to_dict()); return result_exit(result)
         except (json.JSONDecodeError,ValueError) as error: output({"action":args.action,"ok":False,"error":str(error)}); return 2
         except Exception as error: output({"action":args.action,"ok":False,"error":str(error)}); return 1
     if args.command=="mcp": return MCPServer(cloud,actor=args.actor).serve()
+    if args.command=="serve":
+        from .httpserver import serve as serve_http
+        serve_http(cloud,host=args.host,port=args.port); return 0
     if args.command=="actions":
         values=[a.definition().to_dict() for a in cloud.actions.list() if not args.provider or a.provider==args.provider]
         output({"actions":values}); return 0
@@ -216,6 +356,58 @@ def main(argv: list[str] | None = None) -> int:
         elif v=="verify": result=cloud.run("task.verify",actor=args.actor,task=args.id,criteria_met=args.criteria,verified_by=args.actor)
         elif v in {"claim","release"}: result=cloud.run(f"task.{v}",actor=args.actor,task=args.id,claimant=args.claimant or args.actor)
         output(result.to_dict()); return 0 if result.ok else 1
+    if args.command=="blueprint":
+        v=args.verb
+        if v=="list": result=cloud.run("blueprint.list",actor=args.actor,category=args.category,tag=args.tag)
+        elif v=="search": result=cloud.run("blueprint.search",actor=args.actor,query=args.query,category=args.category,tag=args.tag)
+        elif v=="status":
+            if not args.project: output({"ok":False,"error":"--project is required for blueprint status"}); return 2
+            result=cloud.run("blueprint.status",actor=args.actor,project=args.project)
+        elif not args.id: output({"ok":False,"error":f"a blueprint name is required for blueprint {v}"}); return 2
+        elif v=="show": result=cloud.run("blueprint.show",actor=args.actor,blueprint=args.id,version=args.version)
+        else:
+            try: blueprint_inputs=json.loads(args.inputs_json) if args.inputs_json else {}
+            except json.JSONDecodeError as error: output({"ok":False,"error":f"--inputs-json is not valid JSON: {error}"}); return 2
+            if v=="plan": result=cloud.run("blueprint.plan",actor=args.actor,blueprint=args.id,version=args.version,project=args.project,inputs=blueprint_inputs)
+            else:
+                if v=="upgrade" and not args.project: output({"ok":False,"error":"--project is required for blueprint upgrade"}); return 2
+                if not args.yes: output({"ok":False,"error":f"blueprint {v} requires --yes"}); return 2
+                action=cloud.actions.get(f"blueprint.{v}")
+                confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"cli:blueprint.{v}:{args.id}"}
+                if v=="apply": result=cloud.run("blueprint.apply",actor=args.actor,confirmation=confirmation,blueprint=args.id,version=args.version,project=args.project,inputs=blueprint_inputs)
+                else: result=cloud.run("blueprint.upgrade",actor=args.actor,confirmation=confirmation,blueprint=args.id,project=args.project,inputs=blueprint_inputs)
+        output(result.to_dict()); return 0 if result.ok else 1
+    if args.command=="discover":
+        result=cloud.run("discovery.capabilities",actor=args.actor,subject=args.subject or args.actor,namespaces=args.namespaces,compact=not args.full)
+        output(result.to_dict()); return 0 if result.ok else 1
+    if args.command=="grant":
+        v=args.verb
+        if v=="issue":
+            if not (args.subject and args.actions): output({"ok":False,"error":"--subject and at least one --action are required for grant issue"}); return 2
+            try: constraints=json.loads(args.constraints_json) if args.constraints_json else {}
+            except json.JSONDecodeError as error: output({"ok":False,"error":f"--constraints-json is not valid JSON: {error}"}); return 2
+            result=cloud.run("grant.issue",actor=args.actor,subject=args.subject,actions=args.actions,resources=args.resources,constraints=constraints,reason=args.reason,expires_at=args.expires_at)
+        elif v=="list": result=cloud.run("grant.list",actor=args.actor,subject=args.subject,include_expired=args.include_expired)
+        elif not args.id: output({"ok":False,"error":f"a grant id is required for grant {v}"}); return 2
+        elif v=="show": result=cloud.run("grant.inspect",actor=args.actor,grant=args.id)
+        else: result=cloud.run("grant.revoke",actor=args.actor,grant=args.id)
+        output(result.to_dict()); return 0 if result.ok else 1
+    if args.command=="adapter":
+        if not (args.url or args.provider or args.bridge):
+            output({"ok":False,"error":"one of --url, --provider, or --bridge is required for adapter test"}); return 2
+        result=cloud.run("adapter.test",actor=args.actor,url=args.url,provider=args.provider,bridge=args.bridge)
+        output(result.to_dict()); return 0 if result.ok else 1
+    if args.command=="node":
+        v=args.verb
+        if v=="list": result=cloud.run("node.list",actor=args.actor)
+        elif not args.host: output({"ok":False,"error":f"a host is required for node {v}"}); return 2
+        elif v=="show": result=cloud.run("node.inspect",actor=args.actor,host=args.host)
+        elif v=="refresh": result=cloud.run("node.refresh",actor=args.actor,host=args.host)
+        else: result=cloud.run("node.permissions",actor=args.actor,host=args.host,subject=args.subject or args.actor)
+        output(result.to_dict()); return 0 if result.ok else 1
+    if args.command=="search":
+        result=cloud.run("search.query",actor=args.actor,query=args.query,kinds=args.kinds,limit=args.limit)
+        output(result.to_dict()); return 0 if result.ok else 1
     if args.command=="work":
         result=cloud.run("work.current",actor=args.actor,subject=args.subject or args.actor); output(result.to_dict()); return 0 if result.ok else 1
     if args.command=="auth":
@@ -224,6 +416,8 @@ def main(argv: list[str] | None = None) -> int:
             credentials={"token":args.token} if args.token else {"principal_id":args.actor}
             result=cloud.run("auth.authenticate",actor=args.actor,method=args.method,credentials=credentials)
         output(result.to_dict()); return 0 if result.ok else 1
+    if args.command=="link":
+        args.command,args.verb="identity","device-link"
     if args.command=="identity":
         v=args.verb
         if v=="list": result=cloud.run("identity.list",actor=args.actor)
@@ -297,7 +491,8 @@ def main(argv: list[str] | None = None) -> int:
     action=cloud.actions.get(name)
     if action.destructive and not args.yes:
         output({"action":name,"ok":False,"error":"destructive action requires --yes"}); return 2
-    result=cloud.run(name,**inputs); output(result.to_dict()); return 0 if result.ok else 1
+    confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"cli:{name}"} if args.yes and action.confirmation!="none" else None
+    result=cloud.run(name,actor=args.actor,confirmation=confirmation,**inputs); output(result.to_dict()); return 0 if result.ok else result_exit(result)
 
 
 if __name__ == "__main__": sys.exit(main())
