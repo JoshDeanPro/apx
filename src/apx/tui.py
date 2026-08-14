@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import curses
 import json
+from pathlib import Path
 from typing import Any, Callable
 
 from .cloud import APX
@@ -43,7 +44,7 @@ class Quit(Exception):
 
 
 class TUI:
-    def __init__(self, stdscr: "curses._CursesWindow", cloud: APX, actor: str):
+    def __init__(self, stdscr: "curses._CursesWindow", cloud: "APX | None", actor: str):
         self.stdscr = stdscr
         self.cloud = cloud
         self.actor = actor
@@ -419,6 +420,76 @@ def _format_lines(value: Any, indent: int = 0) -> list[str]:
     else:
         lines.append(f"{pad}{value}")
     return lines or [json.dumps(value)]
+
+
+def first_run(config_path: "Path") -> dict[str, Any] | None:
+    """Fresh machine, no config yet: the setup wizard that has to exist before the
+    rest of the TUI can mean anything. Running bare `apx` on a machine that has
+    never been configured used to print `configuration not found` and exit 1 --
+    a dead end that made "install it and run it" untrue on every new host.
+
+    Returns the `setup.initialize` result on success, or None if the human backed
+    out (Esc/no), which the caller treats as "quit cleanly", not as an error.
+    """
+    from .setup import initialize
+
+    outcome: dict[str, Any] | None = None
+
+    def _wizard(stdscr):
+        nonlocal outcome
+        ui = TUI(stdscr, None, "human:local")
+        ui.message(
+            [
+                "No configuration on this machine yet.",
+                "",
+                "apx describes the machines, services, and projects you",
+                "want it to act on. This creates a minimal config for THIS",
+                "machine -- nothing is contacted, nothing is sent anywhere.",
+                "",
+                f"It will be written to: {config_path}",
+            ],
+            title="Welcome to apx",
+        )
+        if not ui.confirm(f"Create {config_path.name} now?"):
+            return
+        # Each SSH target is verified by setup.initialize() before it is written,
+        # so a host that cannot actually be reached from HERE is reported as an
+        # error instead of being silently baked into the config -- the exact
+        # failure mode that made copied configs look configured but broken.
+        ssh_hosts: list[str] = []
+        while True:
+            answer = ui.read_line("Add another machine over SSH? (name=ssh-target, blank when done)")
+            if answer is None or not answer.strip():
+                break
+            ssh_hosts.append(answer.strip())
+        try:
+            outcome = initialize(config_path, ssh_hosts=ssh_hosts, interactive=False)
+        except Exception as error:
+            ui.message([str(error)], title="Setup failed")
+            return
+        local = outcome["local"]
+        lines = [
+            f"Wrote {outcome['config']}",
+            "",
+            f"This machine: {local['hostname']} ({local['os']}/{local['architecture']})",
+            f"Detected capabilities: {', '.join(local['capabilities']) or 'none'}",
+        ]
+        if outcome["ssh_hosts"]:
+            lines += ["", "Reachable over SSH:"] + [f"  {h['name']} -> {h['target']}" for h in outcome["ssh_hosts"]]
+        if outcome["errors"]:
+            lines += ["", "Not added (unreachable from here):"] + [
+                f"  {e.get('host')}: {e['error']}" for e in outcome["errors"]
+            ]
+        lines += ["", "Next: add API keys under Credentials, or run apx --doctor."]
+        ui.message(lines, title="apx is set up")
+
+    try:
+        curses.wrapper(_wizard)
+    except KeyboardInterrupt:
+        return None
+    except Quit:
+        return None
+    return outcome
 
 
 def run(cloud: APX, actor: str, start_screen: str | None = None) -> int:
