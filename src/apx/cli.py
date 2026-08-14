@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from .cloud import APX
 from .protocol import MCPServer
@@ -184,6 +185,14 @@ def main(argv: list[str] | None = None) -> int:
         # terminal to draw into (piped/scripted invocation), since curses cannot
         # run without one.
         if sys.stdin.isatty() and sys.stdout.isatty():
+            # A machine that has never been configured gets the setup wizard, not
+            # an error: "install it, run it" has to be true on a fresh host, which
+            # is the whole point of a bare invocation dropping into the TUI.
+            from .config import default_config_path
+            config_path=Path(args.config).expanduser() if args.config else default_config_path()
+            if not config_path.exists():
+                from .tui import first_run
+                if first_run(config_path) is None: return 0
             try: cloud=APX(args.config)
             except Exception as error: output({"ok":False,"error":str(error)}); return 1
             from .tui import run as run_menu
