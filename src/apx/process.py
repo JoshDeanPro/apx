@@ -43,6 +43,8 @@ def run(argv: Sequence[str], *, timeout: int=DEFAULT_TIMEOUT, cwd: str|Path|None
         except subprocess.TimeoutExpired as error:
             process.kill(); process.wait()
             raise ProcessTimeout(f"command timed out after {timeout}s") from error
+        except (PermissionError, OSError) as error: raise ProcessError(f"{argv[0]} execution failed: {error}") from error
+
         stdout_file.seek(0); stderr_file.seek(0)
         stdout_raw=stdout_file.read(max_output_bytes+1); stderr_raw=stderr_file.read(max_output_bytes+1)
         truncated=len(stdout_raw)>max_output_bytes or len(stderr_raw)>max_output_bytes

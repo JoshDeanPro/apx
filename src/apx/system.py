@@ -58,26 +58,34 @@ def tailscale_status(host: Host) -> dict[str,Any]:
 def scheduler_list(host: Host) -> dict[str,Any]:
     info=inspect_host(host); transport=transport_for(host); jobs=[]
     if info["capabilities"]["cron"]["available"]:
-        result=transport.run(["crontab","-l"],timeout=15)
-        if result.ok:
-            for index,line in enumerate(result.stdout.splitlines(),1):
-                stripped=line.strip()
-                if stripped and not stripped.startswith("#"):
-                    parts=stripped.split(None,5)
-                    if len(parts)>=6: jobs.append({"id":f"cron:{host.name}:{index}","name":f"user-cron-{index}","host":host.name,"scheduler":"cron","schedule":" ".join(parts[:5]),"command":parts[5],"enabled":True})
+        try:
+            result=transport.run(["crontab","-l"],timeout=15)
+            if result.ok:
+                for index,line in enumerate(result.stdout.splitlines(),1):
+                    stripped=line.strip()
+                    if stripped and not stripped.startswith("#"):
+                        parts=stripped.split(None,5)
+                        if len(parts)>=6: jobs.append({"id":f"cron:{host.name}:{index}","name":f"user-cron-{index}","host":host.name,"scheduler":"cron","schedule":" ".join(parts[:5]),"command":parts[5],"enabled":True})
+        except Exception: pass
     if info["capabilities"]["systemd"]["available"]:
-        result=transport.run(["systemctl","list-timers","--all","--no-pager","--no-legend"],timeout=20)
-        for index,line in enumerate(result.stdout.splitlines(),1):
-            parts=line.split()
-            if len(parts)>=2:
-                unit=next((part for part in reversed(parts) if part.endswith(".timer")),None)
-                if unit: jobs.append({"id":f"systemd_timer:{host.name}:{unit}","name":unit,"host":host.name,"scheduler":"systemd_timer","schedule":" ".join(parts[:5]),"service":unit.removesuffix(".timer")+".service","enabled":True})
+        try:
+            result=transport.run(["systemctl","list-timers","--all","--no-pager","--no-legend"],timeout=20)
+            if result.ok:
+                for index,line in enumerate(result.stdout.splitlines(),1):
+                    parts=line.split()
+                    if len(parts)>=2:
+                        unit=next((part for part in reversed(parts) if part.endswith(".timer")),None)
+                        if unit: jobs.append({"id":f"systemd_timer:{host.name}:{unit}","name":unit,"host":host.name,"scheduler":"systemd_timer","schedule":" ".join(parts[:5]),"service":unit.removesuffix(".timer")+".service","enabled":True})
+        except Exception: pass
     if info["capabilities"]["launchd"]["available"]:
-        script='''import glob,json,os,plistlib\nout=[]\npaths=["/Library/LaunchAgents/*.plist","/Library/LaunchDaemons/*.plist",os.path.expanduser("~/Library/LaunchAgents/*.plist")]\nfor pattern in paths:\n for path in glob.glob(pattern):\n  try:\n   with open(path,"rb") as stream: item=plistlib.load(stream)\n   schedule=item.get("StartCalendarInterval") or item.get("StartInterval")\n   if schedule is not None: out.append({"name":item.get("Label",os.path.basename(path)),"schedule":schedule,"path":path,"enabled":not item.get("Disabled",False)})\n  except Exception: pass\nprint(json.dumps(out))'''
-        result=transport.run(["python3","-c",script],timeout=20)
-        if result.ok:
-            for item in json.loads(result.stdout): jobs.append({"id":f"launchd:{host.name}:{item['name']}","host":host.name,"scheduler":"launchd",**item})
+        try:
+            script='''import glob,json,os,plistlib\nout=[]\npaths=["/Library/LaunchAgents/*.plist","/Library/LaunchDaemons/*.plist",os.path.expanduser("~/Library/LaunchAgents/*.plist")]\nfor pattern in paths:\n for path in glob.glob(pattern):\n  try:\n   with open(path,"rb") as stream: item=plistlib.load(stream)\n   schedule=item.get("StartCalendarInterval") or item.get("StartInterval")\n   if schedule is not None: out.append({"name":item.get("Label",os.path.basename(path)),"schedule":schedule,"path":path,"enabled":not item.get("Disabled",False)})\n  except Exception: pass\nprint(json.dumps(out))'''
+            result=transport.run(["python3","-c",script],timeout=20)
+            if result.ok:
+                for item in json.loads(result.stdout): jobs.append({"id":f"launchd:{host.name}:{item['name']}","host":host.name,"scheduler":"launchd",**item})
+        except Exception: pass
     return {"host":host.name,"jobs":jobs,"schedulers":sorted({job["scheduler"] for job in jobs})}
+
 
 
 def scheduler_inspect(host: Host, job: str) -> dict[str,Any]:
