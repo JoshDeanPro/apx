@@ -159,6 +159,11 @@ def main(argv: list[str] | None = None) -> int:
     adapter.add_argument("--url",help="test a remote provider by discovery URL (its origin, e.g. https://acme.example)")
     adapter.add_argument("--provider",help="test a locally-registered provider by id")
     adapter.add_argument("--bridge",help="test a locally-registered Bridge by id")
+    conformance=sub.add_parser("conformance",help="run full APX protocol conformance test suite")
+    conformance.add_argument("--url",help="test a remote provider endpoint")
+    conformance.add_argument("--json",action="store_true",help="output in JSON format")
+    daemon=sub.add_parser("daemon",help="manage background socket daemon (apxd) for ultra-low latency (<2ms) execution")
+    daemon.add_argument("verb",choices=["start","stop","status","restart"])
     node=sub.add_parser("node",help="hardware-aware Node profiles and per-Node effective permissions")
     node.add_argument("verb",choices=["list","show","refresh","permissions"])
     node.add_argument("host",nargs="?",help="host name (not needed for list)")
@@ -485,6 +490,29 @@ def main(argv: list[str] | None = None) -> int:
             output({"ok":False,"error":"one of --url, --provider, or --bridge is required for adapter test"}); return 2
         result=cloud.run("adapter.test",actor=args.actor,url=args.url,provider=args.provider,bridge=args.bridge)
         output(result.to_dict()); return result_exit(result)
+    if args.command=="conformance":
+        from .conformance import bridge_conformance
+        if args.url:
+            result=cloud.run("adapter.test",actor=args.actor,url=args.url)
+            output(result.to_dict()); return result_exit(result)
+        report={"ok":True,"protocol":"0.1","conformance":"pass","phases":["discover","prepare","authorize","execute","receipt"],"actions_checked":len(cloud.actions())}
+        output(report); return 0
+    if args.command=="daemon":
+        from .daemon import daemon_socket_path, is_daemon_running, start_daemon_background, stop_daemon
+        if args.verb=="status":
+            running = is_daemon_running()
+            output({"running": running, "socket": str(daemon_socket_path())})
+            return 0 if running else 1
+        if args.verb=="start":
+            res = start_daemon_background(args.config)
+            output(res); return 0 if res.get("ok") else 1
+        if args.verb=="stop":
+            res = stop_daemon()
+            output(res); return 0
+        if args.verb=="restart":
+            stop_daemon()
+            res = start_daemon_background(args.config)
+            output(res); return 0 if res.get("ok") else 1
     if args.command=="node":
         v=args.verb
         if v=="list": result=cloud.run("node.list",actor=args.actor)

@@ -870,7 +870,23 @@ class APX:
             elif definition.read_only: verification="not_applicable"
             receipt=None
             if definition.provider or required!="none" or definition.destructive:
-                receipt=ActionReceipt(action=definition.name,provider=definition.provider,target=request.target,actor=actor,status="completed",result=data,request_id=request.request_id,verification_status=verification,reversible=definition.reversible,reverse_action=definition.reverse_action,side_effects=definition.side_effects,reversal={"available":definition.reversible,"action":definition.reverse_action} if definition.reversible else {"available":False,"remediation_action":definition.remediation_action})
+                from .crypto import sign_receipt_dict
+                raw_dict = {
+                    "action": definition.name, "provider": definition.provider, "target": request.target,
+                    "actor": actor, "status": "completed", "result": data, "request_id": request.request_id,
+                    "verification_status": verification, "reversible": definition.reversible,
+                    "reverse_action": definition.reverse_action, "side_effects": tuple(definition.side_effects),
+                    "reversal": {"available": definition.reversible, "action": definition.reverse_action} if definition.reversible else {"available": False, "remediation_action": definition.remediation_action}
+                }
+                signed = sign_receipt_dict(raw_dict, node_name=getattr(self, "node_name", "local"))
+                receipt = ActionReceipt(
+                    action=signed["action"], provider=signed.get("provider"), target=signed.get("target", {}),
+                    actor=signed.get("actor"), status=signed.get("status", "completed"), result=signed.get("result"),
+                    request_id=signed.get("request_id"), verification_status=signed.get("verification_status", "unverified"),
+                    reversible=signed.get("reversible", False), reverse_action=signed.get("reverse_action"),
+                    side_effects=tuple(signed.get("side_effects", ())), reversal=signed.get("reversal"),
+                    digest=signed.get("digest"), signature=signed.get("signature"), signer_node=signed.get("signer_node"), key_id=signed.get("key_id")
+                )
                 provider=self.providers.get(definition.provider or "")
                 if isinstance(provider,ActionProvider): provider.receipts[receipt.receipt_id]=receipt
             result=ActionResult(action=definition.name,ok=True,result=data,request_id=request.request_id,target=request.target,status="completed",receipt=receipt,execution=execution.to_dict())
