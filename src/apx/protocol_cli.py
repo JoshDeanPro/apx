@@ -34,11 +34,17 @@ LOCALCLOUD_COMMANDS = {
 
 
 def _first_command(argv: list[str]) -> str | None:
-    for value in argv:
+    i = 0
+    while i < len(argv):
+        value = argv[i]
         if value in {"--config", "--actor"}:
-            # Their following value is not a command; argparse will validate it.
+            i += 2
+            continue
+        if value.startswith("--config=") or value.startswith("--actor="):
+            i += 1
             continue
         if value.startswith("-"):
+            i += 1
             continue
         return value
     return None
