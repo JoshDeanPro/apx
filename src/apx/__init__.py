@@ -1,5 +1,10 @@
 # SPDX-License-Identifier: MPL-2.0
-"""APX: use the computers and services you already own together."""
+"""OpenPower APX: the protocol and action fabric layer.
+
+LocalCloud is a separate OpenPower runtime built on APX.  Existing imports are
+kept source-compatible through the 0.8 transition while product/runtime UX
+moves under ``openpower.localcloud``.
+"""
 
 from .cloud import APX
 from .axp import ActionDefinition, ActionReceipt, ActionRequest, ActionResult, ActorDescriptor, Capability, Connection, Context, CredentialHandle, Event, PreparedAction, Resource, ResourceRelationship, SecretInput, StructuredError, VersionInfo
@@ -14,4 +19,4 @@ from .conformance import bridge_conformance
 from .daily import CalendarResource, FinancialResource, PasswordManager, PasswordManagerResource, SubscriptionObservation, relate_subscription
 
 __all__ = ["ActionComponent","ActionDefinition","ActionPath","ActionProvider","ActionReceipt","ActionRequest","ActionResult","ActorDescriptor","APXClient","Bridge","CalendarResource","Campaign","Consent","Capability","CapabilityGraph","ComponentCandidate","ComponentRegistry","CompositionEngine","CompositionStep","Connection","ContentVariant","Context","ContextEntry","CredentialHandle","CredentialReference","Event","FinancialResource","Host","HTTPClientTransport","HTTPProviderAdapter","APX","LocalClientTransport","Offer","OpaqueFinancialResource","OperationAccepted","PasswordManager","PasswordManagerResource","PersonalContextStore","PersonalizationPolicy","PreparedAction","Project","ProviderIdentity","ProviderManifest","ProviderPolicyDenied","ProviderSession","RemoteProvider","RelevanceRequest","RelevanceResult","Resource","ResourceRelationship","Reward","RewardReceipt","SecretInput","StructuredError","SubscriptionObservation","VersionInfo","audit_component_candidate","bridge_conformance","build_personal_provider","relate_subscription","validate_provider"]
-__version__ = "0.8.1"
+__version__ = "0.8.2"
