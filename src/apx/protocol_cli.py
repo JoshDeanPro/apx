@@ -32,6 +32,12 @@ LOCALCLOUD_COMMANDS = {
     "agent",
 }
 
+LOCALCLOUD_RENAMES = {
+    "menu": "tui",
+    "start": "tui",
+    "localcloud": "status",
+}
+
 
 def _first_command(argv: list[str]) -> str | None:
     i = 0
@@ -57,9 +63,10 @@ def main(argv: list[str] | None = None) -> int:
 
     command = _first_command(args)
     if command in LOCALCLOUD_COMMANDS:
+        replacement = LOCALCLOUD_RENAMES.get(command, command)
         print(
             f"`apx {command}` moved to OpenPower LocalCloud. "
-            f"Use `localcloud {command}` instead.",
+            f"Use `localcloud {replacement}` instead.",
             file=sys.stderr,
         )
         return 2
