@@ -46,7 +46,7 @@ def _main(argv: list[str] | None = None) -> int:
     serve.add_argument("--host",default="127.0.0.1"); serve.add_argument("--port",type=int,default=8420)
     sub.add_parser("plugins",help="list plugin metadata and health")
     sub.add_parser("fleet",help="parallel health probe over every configured Host and every zero-argument *.status Action")
-    agent=sub.add_parser("agent",help="set up a Standing Agent (the palis-autopilot pattern: a coding agent run to completion, on a loop, under systemd/launchd)")
+    agent=sub.add_parser("agent",help="set up a Standing Agent (the apx-autopilot pattern: a coding agent run to completion, on a loop, under systemd/launchd)")
     agent.add_argument("verb",choices=["plan","setup","list","show","logs","remove"])
     agent.add_argument("name",nargs="?")
     agent.add_argument("--host"); agent.add_argument("--repo")
