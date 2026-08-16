@@ -1388,9 +1388,9 @@ class APXTUI:
             )
 
         footer_text = (
-            "↑↓ move   SPACE select   ENTER confirm   ESC/← back   R refresh   Q quit\n"
+            "↑↓ navigate   SPACE select   ENTER confirm   ESC back   R refresh   Q quit\n"
             if is_multiselect
-            else "↑↓ move   ENTER open   ESC/← back   R refresh   Q quit\n"
+            else "↑↓ navigate   ENTER open   ESC back   R refresh   Q quit\n"
         )
 
         output.extend(
@@ -1507,6 +1507,8 @@ class APXTUI:
                 )
 
         @kb.add("enter")
+        @kb.add("right")
+        @kb.add("l")
         def _enter(event) -> None:
             items = current_screen_items(
                 self.screen
@@ -1531,6 +1533,7 @@ class APXTUI:
 
         @kb.add("escape")
         @kb.add("left")
+        @kb.add("h")
         @kb.add("backspace")
         def _back(event) -> None:
             event.app.exit(
