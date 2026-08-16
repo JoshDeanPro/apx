@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apx"
-version = "0.8.1"
-description = "A universal, permissioned capability and Action fabric."
+version = "0.8.2"
+description = "OpenPower APX protocol plus the separately owned LocalCloud runtime."
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MPL-2.0"
@@ -14,16 +14,17 @@ dependencies = [
     "httpx==0.28.1",
     "jsonschema==4.26.0",
     "platformdirs==4.11.2",
-
     "prompt-toolkit==3.0.52",
     "rich==14.2.0",
 ]
 
 [project.scripts]
-apx = "apx.cli:main"
+apx = "apx.protocol_cli:main"
+localcloud = "openpower.localcloud.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["apx*", "openpower*"]
 
 [tool.setuptools.data-files]
 "share/apx/spec/0.1" = ["spec/README.md", "spec/protocol.md", "spec/http.md", "spec/conformance.md", "spec/fabric.md", "spec/discovery.md", "spec/grants.md", "spec/adapters.md", "spec/personal-context.md", "spec/optional-commercial-extensions.md"]
