@@ -148,7 +148,7 @@ class AXPStatusOut(BaseModel):
 
 
 class DeviceLinkCreate(BaseModel):
-    agent_name: str = Field(min_length=1, max_length=200, description="Shown to the human approving this link, e.g. \"AXP on ethan-mac\".")
+    agent_name: str = Field(min_length=1, max_length=200, description="Shown to the human approving this link, e.g. \"AXP on workstation\".")
 
 
 class DeviceLinkCreatedOut(BaseModel):

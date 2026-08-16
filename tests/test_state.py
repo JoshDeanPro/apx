@@ -22,7 +22,7 @@ class StateStoreTests(unittest.TestCase):
         self.assertEqual(self.cloud.state.get(),"normal")
 
     def test_set_persists_and_records_history(self):
-        entry=self.cloud.state.set("incident","suspicious login","human:ethan")
+        entry=self.cloud.state.set("incident","suspicious login","human:owner")
         self.assertEqual(entry["from"],"normal"); self.assertEqual(entry["to"],"incident")
         self.assertEqual(self.cloud.state.get(),"incident")
         self.assertEqual(self.cloud.state.status()["history"][-1],entry)

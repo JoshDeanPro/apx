@@ -6,7 +6,7 @@ from apx.identity import ActorRegistry, AgentProfile, parse_actor_id
 class IdentityTests(unittest.TestCase):
     def test_parse_actor_id(self):
         self.assertEqual(parse_actor_id("agent::vps"),("agent",":vps"))
-        self.assertEqual(parse_actor_id("human:ethan"),("human","ethan"))
+        self.assertEqual(parse_actor_id("human:owner"),("human","ethan"))
 
     def test_parse_actor_id_rejects_unknown_kind_and_missing_name(self):
         with self.assertRaises(ValueError): parse_actor_id("robot:x")
@@ -25,8 +25,8 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(registry.roles_for("agent::mac"),())
 
     def test_registry_honors_configured_default_actor(self):
-        registry=ActorRegistry.from_config([],default_actor="human:ethan")
-        self.assertEqual(registry.resolve_default(),"human:ethan")
+        registry=ActorRegistry.from_config([],default_actor="human:owner")
+        self.assertEqual(registry.resolve_default(),"human:owner")
 
 
 if __name__ == "__main__": unittest.main()

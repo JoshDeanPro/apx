@@ -65,7 +65,7 @@ class ActorCredentialStoreTests(unittest.TestCase):
 
     def test_list_for_filters_by_principal(self):
         self.store.issue("agent::mac")
-        self.store.issue("human:ethan")
+        self.store.issue("human:owner")
         self.assertEqual(len(self.store.list_for("agent::mac")),1)
 
     def test_expires_lazily_computed_on_read(self):

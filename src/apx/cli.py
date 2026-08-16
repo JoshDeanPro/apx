@@ -70,7 +70,7 @@ def _main(argv: list[str] | None = None) -> int:
     group=sub.add_parser("group",help="inspect or change a group"); group.add_argument("verb",choices=["show","add","remove"]); group.add_argument("name"); group.add_argument("resource",nargs="?")
     create=sub.add_parser("create",help="scaffold an extension"); create.add_argument("kind",choices=["plugin","action","adapter"]); create.add_argument("name"); create.add_argument("--output",default=".")
     run=sub.add_parser("run",help="run any configured APX action"); run.add_argument("action"); run.add_argument("--input",default="{}",help="JSON object of action inputs")
-    run.add_argument("--auth-context",help="JSON object asserting an authenticated actor context, required by some provider (e.g. browser.*) consequential actions -- e.g. '{\"principal_id\":\"human:ethan\"}'")
+    run.add_argument("--auth-context",help="JSON object asserting an authenticated actor context, required by some provider (e.g. browser.*) consequential actions -- e.g. '{\"principal_id\":\"human:owner\"}'")
     update=sub.add_parser("update",help="update the APX software, leaving local state alone (a checkout fast-forwards; an installed runtime installs its configured source)")
     update.add_argument("verb",nargs="?",default="apply",choices=["check","apply","push"])
     update.add_argument("hosts",nargs="*",help="for `push`: which Nodes to update (default: every Node that is not this machine)")

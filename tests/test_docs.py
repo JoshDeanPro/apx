@@ -48,7 +48,7 @@ commands={test="python -m pytest"}
 deployment={method="scripts/deploy.sh"}
 
 [[actors]]
-id="human:ethan"
+id="human:owner"
 roles=["deployer","reader"]
 
 [[roles]]
@@ -99,7 +99,7 @@ class DocsTests(unittest.TestCase):
         self.assertNotIn("super-secret-value",first)
 
     def test_machine_audience_includes_related_missions(self):
-        result=self.cloud.run("mission.create",actor="human:ethan",project="demo",title="Fix bug",objective="Repair the thing")
+        result=self.cloud.run("mission.create",actor="human:owner",project="demo",title="Fix bug",objective="Repair the thing")
         self.assertTrue(result.ok,result.to_dict())
         payload=json.loads(generate(self.cloud,"demo","machine"))
         kinds={r["kind"] for r in payload["resources"]}
@@ -110,7 +110,7 @@ class DocsTests(unittest.TestCase):
         with self.assertRaises(ValueError): generate(self.cloud,"demo","printed")
 
     def test_docs_action_is_shared_across_python_and_cli_path(self):
-        result=self.cloud.run("docs.generate",actor="human:ethan",project="demo",audience="machine")
+        result=self.cloud.run("docs.generate",actor="human:owner",project="demo",audience="machine")
         self.assertTrue(result.ok)
         json.loads(result.result["content"])  # must be valid JSON
 

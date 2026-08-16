@@ -38,7 +38,7 @@ class CredentialReference:
     # The actor (human, almost always) accountable for this credential -- who it
     # belongs to, not who may currently use it (that's Grant/RolePolicy scoping on
     # the `id` target dimension, see cloud.py's _grant_extra_allow). An actor id
-    # like "human:ethan", not a raw email -- the actor's own profile is the single
+    # like "human:owner", not a raw email -- the actor's own profile is the single
     # place identity details (email, display name) belong.
     owner: str | None = None
 

@@ -24,8 +24,8 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(decision.reason,"No applicable allow policy.")
 
     def test_wildcard_action_allows(self):
-        eng=engine([{"id":"human:ethan","roles":["admin"]}],[{"name":"admin","allow":[{"action":"*"}]}])
-        self.assertTrue(eng.evaluate("human:ethan","host.shutdown").allowed)
+        eng=engine([{"id":"human:owner","roles":["admin"]}],[{"name":"admin","allow":[{"action":"*"}]}])
+        self.assertTrue(eng.evaluate("human:owner","host.shutdown").allowed)
 
     def test_glob_action_prefix_matches(self):
         eng=engine([{"id":"agent::mac","roles":["developer"]}],[{"name":"developer","allow":[{"action":"project.*"}]}])
@@ -79,8 +79,8 @@ class PolicyTests(unittest.TestCase):
         self.assertFalse(eng.evaluate("agent::vps","service.restart",{"project":"other"}).allowed)
 
     def test_explain_matches_evaluate(self):
-        eng=engine([{"id":"human:ethan","roles":["admin"]}],[{"name":"admin","allow":[{"action":"*"}]}])
-        self.assertEqual(eng.explain("human:ethan","anything"),eng.evaluate("human:ethan","anything"))
+        eng=engine([{"id":"human:owner","roles":["admin"]}],[{"name":"admin","allow":[{"action":"*"}]}])
+        self.assertEqual(eng.explain("human:owner","anything"),eng.evaluate("human:owner","anything"))
 
 
 if __name__ == "__main__": unittest.main()

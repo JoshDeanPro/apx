@@ -86,7 +86,7 @@ async def lookup_device_link(
     user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> DeviceLinkLookupOut:
-    """Authenticated so the website can show "Link device 'AXP on ethan-mac'?"
+    """Authenticated so the website can show "Link device 'AXP on workstation'?"
     before the human commits to approving or denying it."""
     result = await session.execute(select(DeviceLinkRequest).where(DeviceLinkRequest.user_code == user_code))
     link = result.scalar_one_or_none()
