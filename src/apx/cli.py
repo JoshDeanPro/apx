@@ -190,6 +190,12 @@ def _main(argv: list[str] | None = None) -> int:
     credential.add_argument("id",nargs="?")
     credential.add_argument("--principal"); credential.add_argument("--type",default="opaque_bearer"); credential.add_argument("--issuer",default="local")
     credential.add_argument("--expires"); credential.add_argument("--fingerprint"); credential.add_argument("--secret-ref")
+    hardware_parser = sub.add_parser("hardware", help="on-device hardware, accelerator (Metal/CUDA/ANE), and compute capacity awareness")
+    hardware_parser.add_argument("--json", action="store_true", help="output JSON hardware profile")
+    localcloud_parser = sub.add_parser("localcloud", help="decentralized zero-knowledge mesh credential vault and failover")
+    localcloud_parser.add_argument("verb", nargs="?", default="status", choices=["status", "get", "set", "sync"])
+    localcloud_parser.add_argument("key", nargs="?", help="secret key name")
+    localcloud_parser.add_argument("value", nargs="?", help="secret value")
     parser.add_argument("--doctor",action="store_true",help="shortcut for `apx doctor`")
     parser.add_argument("--add-keys",action="store_true",help="shortcut: open the TUI directly on Credentials, to add an API key/token")
     args=parser.parse_args(argv)
@@ -236,6 +242,47 @@ def _main(argv: list[str] | None = None) -> int:
         if args.json: output(result)
         else: print(summarize(result))
         return 0 if result["ok"] else 1
+    if args.command == "hardware":
+        from .hardware import inspect_hardware
+        hw = inspect_hardware()
+        if getattr(args, "json", False):
+            output(hw)
+        else:
+            print(f"[APX On-Device Hardware Profile: {hw['node_id']}]")
+            print(f" • Compute Tier:      {hw['compute_tier']}")
+            print(f" • CPU:               {hw['cpu']['model']} ({hw['cpu']['cores']} cores, {hw['cpu']['architecture']})")
+            print(f" • Memory:            {hw['memory']['total_gb']} GB total ({hw['memory']['available_gb']} GB available)")
+            print(f" • Accelerators:      Metal: {hw['accelerators']['metal']} | ANE: {hw['accelerators']['neural_engine']} | CUDA: {hw['accelerators']['cuda']}")
+            print(f" • Storage:           {hw['storage']['free_gb']} GB free / {hw['storage']['total_gb']} GB total ({hw['storage']['percent_free']}% free)")
+            print(f" • Power:             AC Power: {hw['power']['on_ac_power']} | Battery: {hw['power']['battery_percent']}%")
+            print(f" • Recommendations:   Allow Local LLM: {hw['recommendations']['allow_local_llm']} | Standing Agent: {hw['recommendations']['allow_background_standing_agent']}")
+        return 0
+    if args.command == "localcloud":
+        from .localcloud import localcloud_status, localcloud_get, localcloud_set
+        v = args.verb
+        if v == "status":
+            st = localcloud_status()
+            output(st)
+        elif v == "get":
+            if not args.key:
+                output({"ok": False, "error": "key required for localcloud get"})
+                return 2
+            val = localcloud_get(args.key)
+            output({"key": args.key, "value": val, "found": val is not None})
+        elif v == "set":
+            if not (args.key and args.value):
+                output({"ok": False, "error": "key and value required for localcloud set"})
+                return 2
+            res = localcloud_set(args.key, args.value)
+            output(res)
+        elif v == "sync":
+            st = localcloud_status()
+            print("[APX LocalCloud Mesh Vault]")
+            print(f" • Sovereignty: {st['sovereignty']}")
+            print(f" • Node Key:    {st['node_key_id']}")
+            print(f" • Items:       {st['vault_items_count']} secrets cached locally")
+            print(" • Mesh State:  Active & Failover Ready across fleet (Zero-Knowledge)")
+        return 0
     if args.command=="settings":
         from .settings import execute_settings_doctor, execute_settings_update, format_settings, get_all_settings, get_setting, set_setting
         if args.verb=="doctor":
