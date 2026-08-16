@@ -76,62 +76,119 @@ def version_info() -> dict[str, Any]:
     return info
 
 
+PUBLIC_MANIFEST_URL = "https://openpower.dev/downloads/foundation-manifest.json"
 CANONICAL_REPO_URL = "https://github.com/JoshDeanPro/apx.git"
-DEFAULT_UPDATE_SOURCE = "git+https://github.com/JoshDeanPro/apx.git"
+DEFAULT_UPDATE_SOURCE = PUBLIC_MANIFEST_URL
+
+
+def fetch_public_manifest(timeout: float = 2.5) -> dict[str, Any] | None:
+    """Fetch public release metadata from openpower.dev manifest."""
+    import json
+    import urllib.request
+    try:
+        req = urllib.request.Request(
+            PUBLIC_MANIFEST_URL,
+            headers={"User-Agent": f"APX/{__version__} (Public Release Client)"}
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status == 200:
+                data = json.loads(resp.read().decode("utf-8"))
+                if isinstance(data, dict) and "apx_version" in data:
+                    return data
+    except Exception:
+        pass
+    return None
 
 
 def update_source(explicit: str | None = None, config: dict | None = None, fallback: bool = False) -> str | None:
     """A wheel/sdist path, a directory, a URL, or a pip requirement.
-    Defaults to the canonical GitHub repository when fallback is requested."""
+    Defaults to the canonical repository when fallback is True."""
     if explicit: return explicit
     from_environment = os.environ.get("APX_UPDATE_SOURCE")
     if from_environment: return from_environment
     configured = ((config or {}).get("update") or {}).get("source") or ((config or {}).get("settings") or {}).get("update_source")
     if configured: return configured
-    return DEFAULT_UPDATE_SOURCE if fallback else None
+    return CANONICAL_REPO_URL if fallback else None
 
 
 def check_for_updates(*, source: str | None = None, config: dict | None = None) -> dict[str, Any]:
-    """Read-only. On a checkout this fetches (touching only remote-tracking refs,
-    never the working tree) and reports how far behind upstream we are.
-    On an installed runtime it queries tags/releases from the canonical repo or configured source."""
+    """Read-only. In a development checkout, checks git commits against upstream.
+    In an installed runtime, checks public release manifest or configured update source."""
     where = installation()
-    if where["kind"] != "development":
-        configured = update_source(source, config, fallback=False)
-        if configured:
-            if ("github.com" in configured or configured.startswith("git+") or configured.endswith(".git")):
-                clean_url = configured.replace("git+", "")
-                ok, out, _ = _run(["git", "ls-remote", "--tags", clean_url], timeout=15)
-                if ok and out:
-                    tags = [line.split("refs/tags/")[-1].strip().replace("^{}", "") for line in out.splitlines() if "refs/tags/" in line]
-                    latest_tag = tags[-1] if tags else None
-                    latest_ver = latest_tag.lstrip("v") if latest_tag else None
-                    is_newer = latest_ver and latest_ver != __version__
-                    return {
-                        "kind": "installed",
-                        "current": __version__,
-                        "latest_release": latest_tag,
-                        "source": configured,
-                        "update_available": is_newer,
-                        "note": f"Run `apx update` or `apx settings update apply` to upgrade to {latest_tag}" if is_newer else "APX is up to date with repository releases",
-                    }
-            return {"kind": "installed", "current": __version__, "source": configured,
-                    "update_available": None,
-                    "note": "install the configured source to update"}
-        return {"kind": "installed", "current": __version__, "source": None,
-                "update_available": None,
-                "note": "no update source configured: set [update] source, $APX_UPDATE_SOURCE, or pass --from"}
-    root = _repo_root()
-    fetch_ok, _, fetch_err = _run(["git", "fetch", "--quiet"], root, timeout=60)
-    if not fetch_ok: return {"kind": "development", "update_available": False, "error": fetch_err or "git fetch failed"}
-    head_ok, head, _ = _run(["git", "rev-parse", "HEAD"], root)
-    upstream_ok, upstream, upstream_err = _run(["git", "rev-parse", "@{u}"], root)
-    if not (head_ok and upstream_ok):
-        return {"kind": "development", "update_available": False, "error": upstream_err or "no upstream branch configured"}
-    count_ok, count, _ = _run(["git", "rev-list", "--count", f"{head}..{upstream}"], root)
-    behind = int(count) if count_ok and count.isdigit() else 0
-    return {"kind": "development", "update_available": behind > 0, "commits_behind": behind,
-            "current": head[:8], "upstream": upstream[:8]}
+    if where["kind"] == "development":
+        root = _repo_root()
+        fetch_ok, _, fetch_err = _run(["git", "fetch", "--quiet"], root, timeout=30)
+        if not fetch_ok:
+            return {"kind": "development", "update_available": False, "commits_behind": 0, "error": fetch_err or "git fetch failed", "summary": f"APX is up to date (Version {__version__})"}
+        head_ok, head, _ = _run(["git", "rev-parse", "HEAD"], root)
+        upstream_ok, upstream, upstream_err = _run(["git", "rev-parse", "@{u}"], root)
+        if not (head_ok and upstream_ok):
+            return {"kind": "development", "update_available": False, "commits_behind": 0, "error": upstream_err or "no upstream branch configured", "summary": f"APX is up to date (Version {__version__})"}
+        count_ok, count, _ = _run(["git", "rev-list", "--count", f"{head}..{upstream}"], root)
+        behind = int(count) if count_ok and count.isdigit() else 0
+        return {
+            "kind": "development",
+            "update_available": behind > 0,
+            "commits_behind": behind,
+            "current": head[:8],
+            "upstream": upstream[:8],
+            "summary": f"{behind} new updates available. Run `apx update` to apply." if behind > 0 else f"APX is up to date (Version {__version__})",
+        }
+
+    # Installed runtime
+    configured = update_source(source, config, fallback=False)
+    if configured:
+        if "github.com" in configured or configured.startswith("git+") or configured.endswith(".git"):
+            clean_url = configured.replace("git+", "")
+            ok, out, _ = _run(["git", "ls-remote", "--tags", clean_url], timeout=15)
+            if ok and out:
+                tags = [line.split("refs/tags/")[-1].strip().replace("^{}", "") for line in out.splitlines() if "refs/tags/" in line]
+                latest_tag = tags[-1] if tags else None
+                latest_ver = latest_tag.lstrip("v") if latest_tag else None
+                is_newer = bool(latest_ver and latest_ver != __version__)
+                return {
+                    "kind": "installed",
+                    "current": __version__,
+                    "latest_release": latest_tag,
+                    "source": configured,
+                    "update_available": is_newer,
+                    "summary": f"APX {latest_tag} is available! Run `apx update` to upgrade." if is_newer else f"APX is up to date (Version {__version__})",
+                }
+        return {
+            "kind": "installed",
+            "current": __version__,
+            "source": configured,
+            "update_available": None,
+            "note": "install the configured source to update",
+            "summary": f"Configured update source: {configured}",
+        }
+
+    # Check public manifest as fallback for installed runtime
+    manifest = fetch_public_manifest()
+    if manifest:
+        latest_ver = manifest.get("apx_version", __version__)
+        artifacts = manifest.get("artifacts", {})
+        wheel_info = artifacts.get("apx", {})
+        wheel_url = wheel_info.get("url")
+        is_newer = latest_ver != __version__ and not latest_ver.startswith("0.0")
+        if is_newer:
+            return {
+                "kind": "installed",
+                "update_available": True,
+                "current": __version__,
+                "latest": latest_ver,
+                "source": wheel_url or PUBLIC_MANIFEST_URL,
+                "summary": f"APX {latest_ver} is available! Run `apx update` to install.",
+            }
+
+    return {
+        "kind": "installed",
+        "current": __version__,
+        "source": None,
+        "update_available": None,
+        "note": "no update source configured: set [update] source, $APX_UPDATE_SOURCE, or pass --from",
+        "summary": f"APX is up to date (Version {__version__})",
+    }
 
 
 def _update_cache_path() -> Path:
