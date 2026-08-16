@@ -7,16 +7,17 @@ import sys
 
 from . import LocalCloud, localcloud_get, localcloud_set, localcloud_status, localcloud_sync_peer
 
+# Commands still temporarily implemented by the legacy APX operational CLI.
+# LocalCloud-native commands (status/get/set/sync/run/tui) must NOT appear here,
+# otherwise they are intercepted before LocalCloud's own parser sees them.
 LEGACY_OPERATIONAL_COMMANDS = {
     "fleet",
     "hosts",
     "inspect",
-    "status",
     "services",
     "service",
     "logs",
     "copy",
-    "sync",
     "projects",
     "project",
     "discover-projects",
@@ -95,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         _output(result.to_dict() if hasattr(result, "to_dict") else result)
         return 0 if getattr(result, "ok", True) else 1
     if ns.command == "tui":
-        # The interactive UI is now LocalCloud-owned.  Keep using the mature
+        # The interactive UI is now LocalCloud-owned. Keep using the mature
         # implementation while it is physically migrated out of apx.tui.
         from apx.tui import main as tui_main
         return tui_main()
