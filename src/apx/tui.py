@@ -626,19 +626,6 @@ def current_screen_items(
                 {"device": dev},
             ),
         ]
-            Item(
-                "doctor",
-                "Run APX Doctor",
-            ),
-            Item(
-                "version",
-                "APX Version",
-            ),
-            Item(
-                "refresh",
-                "Refresh This Computer",
-            ),
-        ]
 
     if key == "agents":
         result = []
@@ -925,67 +912,6 @@ def current_screen_items(
             Item("cfg_user", "SSH User", str(info.get("user", "ethan")), "subpage", {"device": dev}),
             Item("cfg_port", "SSH Port", str(info.get("port", 22)), "subpage", {"device": dev}),
             Item("cfg_role", "Node Role", str(info.get("role", "Node")), "subpage", {"device": dev}),
-        ]
-                    name,
-                    (
-                        (
-                            "ON"
-                            if enabled
-                            else "OFF"
-                        )
-                        + (
-                            " • "
-                            + ", ".join(
-                                purposes
-                            )
-                            if purposes
-                            else ""
-                        )
-                    ),
-                    "channel",
-                    {
-                        "channel": name,
-                    },
-                )
-            )
-
-        return result
-
-    if key == "channel":
-        channel = screen.context[
-            "channel"
-        ]
-
-        value = channels_data().get(
-            channel,
-            {},
-        )
-
-        enabled = bool(
-            value.get(
-                "enabled",
-                False,
-            )
-        )
-
-        return [
-            Item(
-                "enabled",
-                (
-                    "Disable Channel"
-                    if enabled
-                    else "Enable Channel"
-                ),
-            ),
-            Item(
-                "purposes",
-                "Configure Uses",
-                "SPACE selects multiple",
-            ),
-            Item(
-                "remove",
-                "Remove Channel",
-            ),
         ]
 
     if key == "projects":
