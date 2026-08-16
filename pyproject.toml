@@ -24,7 +24,7 @@ localcloud = "openpower.localcloud.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["apx*", "openpower*"]
+include = ["apx*", "openpower*", "localcloud*"]
 
 [tool.setuptools.data-files]
 "share/apx/spec/0.1" = ["spec/README.md", "spec/protocol.md", "spec/http.md", "spec/conformance.md", "spec/fabric.md", "spec/discovery.md", "spec/grants.md", "spec/adapters.md", "spec/personal-context.md", "spec/optional-commercial-extensions.md"]
