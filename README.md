@@ -1,363 +1,316 @@
-# APX
+<div align="center">
 
-APX is an action protocol for humans, agents, applications, businesses, and
-machines. It lets a client discover supported user intentions, prepare their
-real consequences, obtain narrowly scoped authority, execute once, verify the
-outcome, and receive a structured receipt.
+# ⚡ APX — Universal Action Protocol & Capability Fabric
 
-Known operations run in APX's deterministic Python execution plane without an
-AI provider. Identity, policy, validation, confirmation, execution,
-verification, compact results, and reusable procedures share one path across
-Python, CLI, MCP, Providers, OpenPower, and voice. See
-[`docs/deterministic-execution.md`](docs/deterministic-execution.md).
+**A deterministic, permissioned capability and action protocol for humans, AI agents, applications, and machines.**
 
-APX Protocol 0.1 has four roles: Client, Provider, Node (a machine Provider),
-and optional Authority. Clients express intent. Providers establish truth about
-their Resources and always retain their business rules. OpenPower, MCP, HTTP,
-local calls, and SSH Nodes use the same Action semantics.
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-blue.svg)](LICENSE)
+[![Python: 3.11+](https://img.shields.io/badge/Python-3.11%2B-brightgreen.svg)](pyproject.toml)
+[![Protocol: 0.1](https://img.shields.io/badge/Protocol-APX_0.1-orange.svg)](spec/protocol.md)
+[![Docs](https://img.shields.io/badge/Docs-openpower.dev%2Fapx-indigo.svg)](https://openpower.dev/apx)
 
-The universal Capability Graph provides one searchable space across machines,
-Providers, applications, devices, bridges, and reusable components. Native paths rank
-above bridges; browser/computer fallback is explicit and never silently weakens a
-consequential Action. See [the fabric specification](spec/fabric.md), [Bridges](docs/bridges.md),
-and [Personal Context](spec/personal-context.md).
+</div>
 
-Run the six-world proof with `python -m apx.examples.universal_fabric`. It
-exercises structured web interaction, a stateful Home Assistant simulator, the
-reference Action Provider, local-only content selection, and validated Action
-component registration. Its computer entry prints the safe `host.status`
-command for an explicitly configured SSH Node; APX never invents a target.
+---
 
-It is a package, not a control-plane server. The base runtime is Python's
-standard library. It does not install or require Docker, a database, an HTTP
-service, or an agent on remote machines.
+## 🚀 Quickstart (Copy & Paste)
 
-## APX vs OpenPower
+Get up and running with APX in seconds:
 
-APX is the open-source framework: Resources, Actions, Events, Context, the
-Action Registry, and the Policy engine. It works completely on its own, on
-one machine, with zero account and zero network dependency.
-
-[OpenPower](https://openpower.one) is an optional product built on top of
-APX (separate repository) — a website, a server, and a per-machine installer
-(`op`) that add device linking, an optional hosted account, and remote
-dispatch between your own machines. OpenPower depends on APX; APX never
-depends on OpenPower, imports nothing from it, and has no code that talks to
-`openpower.one`. The only place APX even knows the name "OpenPower" is one
-explicitly-optional, unconfigured-by-default auth adapter
-(`auth_openpower.py`) that verifies OpenPower-issued identity tokens — the
-same generic `AuthContext` shape any other identity provider would produce.
-
-## Open source & governance
-
-APX is open-source software (MPL-2.0, see [LICENSE](LICENSE)) stewarded
-by the official APX Project. Community contributions, integrations,
-Actions, Providers, and forks are welcome — see
-[CONTRIBUTING.md](CONTRIBUTING.md). The APX and OpenPower names and
-official compatibility designations are governed separately from the
-source-code license — see [TRADEMARKS.md](TRADEMARKS.md) and
-[GOVERNANCE.md](GOVERNANCE.md).
-
-Further reading: [GOVERNANCE.md](GOVERNANCE.md) ·
-[CONTRIBUTING.md](CONTRIBUTING.md) · [MAINTAINERS.md](MAINTAINERS.md) ·
-[SECURITY.md](SECURITY.md) · [CONFORMANCE.md](CONFORMANCE.md) ·
-[TRADEMARKS.md](TRADEMARKS.md) · [AI_POLICY.md](AI_POLICY.md) ·
-[APX-ENHANCEMENTS.md](APX-ENHANCEMENTS.md) · [CLA.md](CLA.md) (draft) ·
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [NOTICE](NOTICE)
-
-## Working now / deferred
-
-Working now: the Action Registry and self-description (`apx actions`),
-Resource/Actor/Policy primitives (`axp.py`, `policy.py`, `identity.py`),
-local + SSH transports, discovery, plugins, credentials-by-reference,
-Missions/Tasks (`apx mission`, `apx task`), Projects/Relationships, the
-MCP adapter, and Action Providers (`apx providers`, prepare/authorize/
-execute/verify/receipt, the reference `subscriptions` provider, the optional
-HTTP adapter) — all going through the one shared `APX.run()`/`execute()`
-dispatch path. See [Action Providers](docs/action-providers.md).
-
-Deferred: `op` (OpenPower's CLI) provider/action inspection commands (`apx`
-has them; `op` doesn't yet), a real proof-of-possession signing
-implementation for `CredentialHandle` (the abstraction exists; bearer tokens
-are what's actually implemented), richer HumanProfile/MachineProfile beyond
-the current AgentProfile/actor model, and asymmetric (RS256/EdDSA) JWT
-verification for the OpenPower auth adapter (HS256 shared-secret only
-today).
-
-## Install and configure
-
-Python 3.11 or newer is required. From a checkout:
+### Install in 1 Line
 
 ```bash
-python3 -m pip install -e .
-cp apx.example.toml apx.toml
-apx hosts
-apx inspect server
+# macOS, Linux, WSL
+curl -fsSL https://openpower.dev/install | sh
 ```
 
-`apx.toml` is deliberately ignored because it describes a specific
-owner's machines. Use `APX_CONFIG=/path/to/file.toml` or `--config` to
-select another file.
+```powershell
+# Windows PowerShell
+irm https://openpower.dev/install.ps1 | iex
+```
 
-## CLI
+### Or Install via Python / Git
+
+```bash
+# From source (development checkout)
+git clone https://github.com/EthanGegos/apx.git
+cd apx
+pip install -e .
+cp apx.example.toml apx.toml
+```
+
+### Verify & Run Your First Actions
+
+```bash
+# 1. Self-diagnosis and health check
+apx doctor
+
+# 2. Inspect configured hosts
+apx hosts
+
+# 3. Read host status (safe, read-only action)
+apx status workstation
+
+# 4. Discover the entire live action catalog
+apx actions
+
+# 5. Launch the interactive TUI
+apx
+```
+
+---
+
+## 🧠 What is APX? (The Protocol Explained)
+
+AI models have intelligence, but letting them run arbitrary raw shell commands or scrape brittle endpoints is insecure and fragile. **APX** turns capabilities across computers, applications, devices, and cloud services into a **single, typed, self-describing, and permissioned Action Fabric**.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                                    THE APX PROTOCOL                                      │
+├──────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                          │
+│   1. DISCOVER   ──►  An agent queries what actions actually exist and their schemas      │
+│   2. PREPARE    ──►  Calculates side effects, costs, and state preconditions             │
+│   3. AUTHORIZE  ──►  Scoped policy evaluation (or explicit human confirmation)           │
+│   4. EXECUTE    ──►  Idempotent single execution via deterministic Python engine         │
+│   5. VERIFY     ──►  Generates a structured, immutable receipt of the completed action   │
+│                                                                                          │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Deterministic Execution Plane**: Runs purely on Python's standard library with zero AI provider dependencies. The engine does not guess or hallucinate parameters; it executes validated actions against real resources.
+- **Zero-Trust Capability Graph**: Machines, databases, services, and APIs are registered as typed `Resources`. Every operation is governed by explicit `Policy`.
+- **Universal Interface**: One shared action dispatch path serves the **`apx` CLI**, **MCP (Model Context Protocol)**, **Python SDK**, **Voice**, and **HTTP endpoints**.
+
+---
+
+## 🎨 Visual Protocol Architecture
+
+```
+                                  CALLERS & AGENTS
+     ┌───────────────────┬───────────────────┬───────────────────┬───────────────────┐
+     │     Human CLI     │    AI via MCP     │    Python SDK     │    HTTP Server    │
+     │    `apx run ...`  │   `apx mcp`       │  `from apx import`│   `apx serve`     │
+     └─────────┬─────────┴─────────┬─────────┴─────────┬─────────┴─────────┬─────────┘
+               │                   │                   │                   │
+               └───────────────────┼───────────────────┴───────────────────┘
+                                   ▼
+ ═══════════════════════════════════════════════════════════════════════════════════════════
+                               APX EXECUTION ENGINE
+ ═══════════════════════════════════════════════════════════════════════════════════════════
+                                   │
+              ┌────────────────────┼────────────────────┐
+              ▼                    ▼                    ▼
+     ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+     │ Action Registry │  │  Policy Engine  │  │ Capability Graph│
+     │ • Input Schemas │  │ • Allow / Deny  │  │ • Discovery     │
+     │ • Risk Metadata │  │ • Scoped Tokens │  │ • Relationships │
+     └────────┬────────┘  └────────┬────────┘  └────────┬────────┘
+              │                    │                    │
+              └────────────────────┼────────────────────┘
+                                   ▼
+ ───────────────────────────────────────────────────────────────────────────────────────────
+                               TRANSPORTS & BRIDGES
+ ───────────────────────────────────────────────────────────────────────────────────────────
+        │                  │                  │                  │                  │
+        ▼                  ▼                  ▼                  ▼                  ▼
+  ┌───────────┐      ┌───────────┐      ┌───────────┐      ┌───────────┐      ┌───────────┐
+  │   Local   │      │    SSH    │      │ HTTP API  │      │ MCP Stdio │      │  Plugins  │
+  │ Subprocess│      │ Remote    │      │ Verified  │      │ External  │      │ Python    │
+  │ Transport │      │ Nodes     │      │ HTTPS     │      │ Tools     │      │ Extensions│
+  └─────┬─────┘      └─────┬─────┘      └─────┬─────┘      └─────┬─────┘      └─────┬─────┘
+        │                  │                  │                  │                  │
+        └──────────────────┼──────────────────┼──────────────────┼──────────────────┘
+                           ▼                  ▼
+               ┌────────────────────────────────────────┐
+               │         TARGET MACHINES & APIS         │
+               │   • Hosts & Nodes    • Databases       │
+               │   • System Services  • Cloud Providers │
+               │   • Smart Devices    • Local Apps      │
+               └────────────────────────────────────────┘
+```
+
+---
+
+## 🔄 The 5-Step Action Lifecycle
+
+Every state change in APX follows a deterministic, 5-phase lifecycle:
+
+```
+  ┌────────────┐       ┌────────────┐       ┌────────────┐       ┌────────────┐       ┌────────────┐
+  │ 1. DISCOVER│  ──►  │ 2. PREPARE │  ──►  │3. AUTHORIZE│  ──►  │ 4. EXECUTE │  ──►  │ 5. RECEIPT │
+  └────────────┘       └────────────┘       └────────────┘       └────────────┘       └────────────┘
+     Ask what             Preview the          Verify actor          Run exactly          Structured
+    actions exist         consequences        permissions &          once with an        verifiable proof
+    and what they         and baseline         confirmation          idempotency          of result &
+       require               state                token                  key              new state
+```
+
+1. **`Discover`**: Caller inspects available `ActionDefinition` records, parameter types, and risk levels (`read_only`, `destructive`).
+2. **`Prepare`**: Generates an execution plan, snapshots current authoritative state version, and computes impact.
+3. **`Authorize`**: Evaluates policy against the `Actor` and `AuthContext`. Destructive operations require explicit confirmation.
+4. **`Execute`**: Dispatches single execution through the resource transport using the idempotency key.
+5. **`Verify & Receipt`**: Returns an immutable, signed `ActionReceipt` containing output, timing, and state mutations.
+
+---
+
+## 🛠️ Complete CLI Command Suite
 
 ```text
-apx hosts
-apx inspect HOST
-apx init [--host NAME=SSH_TARGET]
-apx doctor
-apx plugins
-apx plugin NAME
-apx relationships
-apx resources
-apx groups
-apx group show GROUP
-apx group add|remove GROUP RESOURCE
-apx create plugin NAME
-apx create action resource.verb
-apx create adapter NAME
-apx run resource.verb --input '{"key":"value"}'
-apx status HOST
-apx services HOST
-apx service status HOST SERVICE
-apx service start|stop|restart HOST SERVICE --yes
-apx logs HOST [SERVICE] --lines 100
-apx copy SOURCE_HOST SOURCE DESTINATION_HOST DESTINATION
-apx sync SOURCE_HOST SOURCE DESTINATION_HOST DESTINATION [--apply]
-apx projects
-apx project NAME
-apx discover-projects HOST [ROOT ...]
-apx actions
-apx shutdown HOST --yes
-apx mcp
+Discovery & Inspection:
+  apx hosts                                # List configured machine Nodes
+  apx inspect HOST                         # Deep probe of a host's capabilities & services
+  apx actions                              # Inspect the entire live Action catalog
+  apx resources                            # List all known system & cloud resources
+  apx relationships                        # View relationships between projects and machines
+  apx doctor                               # Comprehensive diagnosis of fleet, config & credentials
+
+Execution & Control:
+  apx status HOST                          # Read uptime, load, disk, and failed services
+  apx services HOST                        # List running and enabled system services
+  apx service status HOST SERVICE          # Check individual service status
+  apx service restart HOST SERVICE --yes   # Restart a service safely
+  apx logs HOST [SERVICE] --lines 100      # Tail filtered logs
+  apx run ACTION --input '{"k":"v"}'       # Execute any registered action by name
+
+Fleet Management & Sync:
+  apx copy SRC_HOST SRC DST_HOST DST       # Copy files between any two nodes via scp
+  apx sync SRC_HOST SRC DST_HOST DST       # Dry-run or apply rsync synchronization
+  apx update                               # Fast, verified self-update of the APX installation
+  apx push HOST                            # Build and push APX wheel to remote node over SSH
+
+Scaffolding & Extensibility:
+  apx create plugin NAME                   # Scaffold an installable Python plugin
+  apx create action resource.verb          # Scaffold a new typed action
+  apx create adapter NAME                  # Scaffold a custom transport adapter
+  apx mcp                                  # Run standard MCP server over stdio for Claude/Codex
 ```
 
-`sync` is a dry run unless `--apply` is supplied. Destructive CLI actions
-require `--yes`; their MCP tools require `confirm=true`.
+---
 
-## Python
+## 🐍 Python SDK Usage
+
+Integrate APX directly into any Python program or agent runtime:
 
 ```python
 from apx import APX
 
-cloud = APX("apx.toml")
-result = cloud.run("service.status", host="server", service="caddy")
-print(result.to_dict())
+# Initialize with configuration
+apx = APX("apx.toml")
+
+# 1. Safe, read-only status query
+status = apx.run("host.status", host="workstation")
+print(f"Host online: {status.result['reachable']}")
+
+# 2. Mutating action with policy and input validation
+result = apx.run(
+    "service.restart",
+    host="vps",
+    service="caddy",
+    confirm=True
+)
+
+if result.ok:
+    print(f"Service restarted successfully: {result.result}")
+else:
+    print(f"Action failed: {result.error}")
 ```
 
-## MCP
+---
 
-Register this stdio command with an MCP client:
+## 🔌 Model Context Protocol (MCP) Integration
+
+Connect APX to **Claude Code**, **Codex**, **Cursor**, or any MCP-compatible AI client:
 
 ```json
 {
   "mcpServers": {
     "apx": {
       "command": "apx",
-      "args": ["--config", "/absolute/path/apx.toml", "mcp"]
+      "args": ["--config", "/path/to/apx.toml", "mcp"]
     }
   }
 }
 ```
 
-The MCP adapter exposes the shared actions using underscore names such as
-`host_info`, `service_status`, `service_restart`, `logs_read`, `file_copy`, and
-`project_inspect`. It contains no separate host or service implementation.
+APX exposes its registered actions as native, validated MCP tools (`host_status`, `service_restart`, `file_copy`, `project_inspect`, etc.) with zero glue code.
 
-## APX Protocol 0.1
+---
 
-Every execution becomes a typed, serializable request and result:
+## 🔄 Self-Update Engine (`apx update` & `apx push`)
 
-```json
-{"apx":"0.1","type":"action.request","protocol_version":"0.1","action":"service.status","request_id":"...","target":{"host":"server"},"input":{"host":"server","service":"caddy"}}
+Keeping fleets in sync without broken dependencies is a first-class guarantee:
+
+```
+  DEVELOPMENT CHECKOUT                           INSTALLED RUNTIME (VENV/WHEEL)
+  ┌──────────────────────────────┐              ┌──────────────────────────────┐
+  │  `apx update`                │              │  `apx update`                │
+  │  • Verifies clean working git│              │  • Upgrades from configured  │
+  │  • Runs `git pull --ff-only` │              │    wheel / source location   │
+  │  • Never rewrites local work │              │  • Re-verifies metadata      │
+  └──────────────┬───────────────┘              └──────────────┬───────────────┘
+                 │                                             │
+                 └──────────────────────┬──────────────────────┘
+                                        ▼
+                           ┌───────────────────────────┐
+                           │    FLEET PROPAGATION      │
+                           │  `apx push remote-node`   │
+                           │  • Builds local wheel     │
+                           │  • Transfers over SSH/SCP │
+                           │  • Updates remote runtime │
+                           └───────────────────────────┘
 ```
 
-```json
-{"apx":"0.1","type":"action.result","action":"service.status","status":"completed","ok":true,"result":{"service":"caddy"}}
-```
+- **`apx update` (Local)**:
+  - On a development checkout: performs a clean `--ff-only` git pull. If the tree is dirty or diverged, it refuses to overwrite your work.
+  - On an installed environment: upgrades the package cleanly from the configured source without calling untrusted third-party services.
+- **`apx push HOST` (Fleet)**:
+  - Builds an installable APX wheel from the current source tree and deploys it across configured SSH nodes automatically.
 
-The normative [APX Protocol 0.1 specification](spec/protocol.md),
-[HTTP mapping](spec/http.md), [conformance contract](spec/conformance.md), and
-[JSON Schemas](spec/schemas) are implementation-independent. `apx.axp` defines Resource, Capability, VersionInfo, ActionDefinition,
-ActionRequest, ActionResult, Event, Context, and StructuredError. Resources may
-carry arbitrary groups and tags. These are plain dataclasses;
-APX 0.1 emits only the normative `apx` version key. The deprecated Python
-constant name remains an import alias until APX 1.0, but it does not affect the wire format.
+---
 
-The in-process `EventRouter` supports exact or wildcard subscriptions. Core
-actions emit `action.completed`/`action.failed` plus useful specific events such
-as `service.started`, `file.copied`, and `host.shutdown_requested`. Plugins and
-future interfaces can subscribe or emit without an event broker.
+## 🌐 APX vs OpenPower
 
-## Credentials and connections
+| Feature | **APX (This Repository)** | **OpenPower (openpower.dev)** |
+|:---|:---|:---|
+| **Nature** | Pure open-source framework & action protocol | Optional web dashboard & hosted services |
+| **Dependencies** | Python standard library + 3 core packages | Web browser, Next.js dashboard, optional hosted account |
+| **Requirements** | Zero account, zero telemetry, works 100% offline | Optional device linking (`apx link`) |
+| **Architecture** | Direct local execution & SSH peer transport | Talks to local `apx serve` over loopback |
+| **License** | Mozilla Public License 2.0 (MPL-2.0) | Proprietary / Commercial extensions |
 
-APX stores references, not secret values:
+APX operates completely independently. It imports nothing from OpenPower and requires no central account.
 
-```toml
-[credentials.provider]
-kind = "provider"
-source = "environment"
-reference = "PROVIDER_API_TOKEN"
-scopes = ["read"]
-groups = ["production", "domains"]
-tags = ["scoped"]
-api_version = "v4"
-```
+---
 
-Values are re-read when an action needs them, so replacing an environment value
-requires no code or configuration change. `doctor` reports configured,
-available, source, and reference status without resolving or printing values.
-Nested sensitive fields and known credential values are redacted at the shared
-AXP result boundary.
+## 🛡️ Project Stewardship, AI Policy & Contributing
 
-`Connection` records say how a Resource is reached. Built-in adapters are
-local, SSH, bounded HTTPS/API, outbound webhook, and MCP stdio. The HTTP adapter
-requires HTTPS except for explicitly allowed localhost use, injects referenced
-credentials only at execution, strips sensitive response headers, redacts
-response data, limits responses to 256 KiB, and bounds timeouts.
+### Leadership & Maintainers
 
-An existing MCP server can become namespaced AXP actions:
+APX is stewarded under the **Founder-Steward** model:
+- **Founder & Project Steward**: **Ethan Gegos** (Original author and sole project steward).
+- **Current Contributors / Maintainers**: Ethan Gegos is the sole author and active maintainer at this time. There are no other maintainers or active contributors currently.
 
-```toml
-[[connections]]
-id = "existing_tools"
-adapter = "mcp_stdio"
-command = ["python3", "/absolute/path/server.py"]
-```
+### Strict Human Authorship & Zero AI Credit Policy
 
-Its implementation stays in that MCP server. APX performs initialize,
-discovers tools, and adapts them as actions such as
-`existing_tools.some_tool`. It does not run a federation service.
+- **No AI Attribution**: AI models, assistants, or LLMs are not authors, copyright holders, or contributors of record. No credit or co-authorship is given to AI tools in commit logs, notices, or release rosters.
+- **Human Responsibility**: Any human submitting a pull request is 100% responsible for the correctness, security, licensing, and behavior of their submission. See [`AI_POLICY.md`](AI_POLICY.md).
 
-A Host can also declare ordered `connections`, including `ssh` and
-`tailscale_ssh`. `host.connection.status` tests them in order and selects the
-first usable method. Tailscale remains optional and is inspected through its
-local CLI; APX never changes tailnet policy or reads auth keys.
+### Contributing & Branch Protection
 
-## Architecture
+We welcome community pull requests, bug fixes, custom providers, and plugins!
 
-```text
-Python / CLI / MCP
-        |
-shared ActionRegistry
-        |
- Hosts -- Projects -- portable TOML context
-        |
- local or SSH Transport
-        |
-discovered host software
-```
+1. Fork the repo and create your feature branch.
+2. Ensure all tests pass (`pytest`).
+3. Submit a Pull Request on GitHub.
+4. **Steward Review**: The `main` branch is protected. No pull requests are merged automatically. Every change requires manual review and approval by the Project Steward (**Ethan Gegos**).
 
-APX also includes transport-neutral Action Providers: typed manifests at the conventional HTTP discovery path `/.well-known/apx`, secure prepare/authorize/execute/verify/receipt lifecycles, a decorator-based Python provider SDK, an optional framework-neutral HTTP adapter, explicit remote discovery, Commerce reciprocity conformance, and a runnable local subscription provider. See [Action Providers](docs/action-providers.md).
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`GOVERNANCE.md`](GOVERNANCE.md) for full details.
 
-The runtime foundation is three deliberately justified packages plus capability detection for the host’s existing Git, SSH, rsync, ripgrep, curl, and TLS environment. APX uses one safe HTTP client, one bounded subprocess boundary, and atomic locked state writes. See [Foundation and dependency policy](docs/foundation.md).
+---
 
-- `models.py`: configured Hosts, Projects, and project locations.
-- `axp.py`: typed AXP 0.1 exchange structures.
-- `events.py`: synchronous AXP event router.
-- `transports.py`: local subprocess and existing SSH aliases.
-- `discovery.py`: dependency-free remote probe executed in memory.
-- `actions.py`: shared action contracts and implementations.
-- `cloud.py`: public Python facade.
-- `cli.py`: human interface.
-- `protocol.py`: dependency-free MCP JSON-RPC/stdio adapter.
-- `plugins.py`: optional `apx.plugins` Python entry-point contract.
-- `credentials.py`: lazy environment references and shared redaction.
-- `adapters/`: local, SSH, HTTPS/API, webhook, and MCP stdio connections.
-- `scaffold.py`: small plugin, action, and adapter generators.
-- `system.py`: read-only connectivity, Tailscale, cron/timer, and launchd discovery.
-- `service_managers.py`: explicit systemd/launchd capability contracts.
-- `integrations/`: modular provider and database plugins.
-- `providers.py`: Action Provider SDK, manifest, remote discovery, HTTP adapter -- see [Action Providers](docs/action-providers.md).
-- `examples/`: runnable reference implementations, e.g. `subscriptions.py`.
+## 📄 License & Notice
 
-Configured Project records relate development, production, services, domains,
-archives, and context. Discovery remains authoritative for installed host
-capabilities. TOML context is structured data that can later render documents
-such as AGENTS.md; generated Markdown is not the source of truth.
+APX is licensed under the **Mozilla Public License 2.0 (MPL-2.0)**. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) for details.
 
-## Dependencies
-
-Required:
-
-- Python 3.11+
-- SSH client only when an SSH host is configured
-- Python 3 on a remote host for discovery
-
-Capability-specific:
-
-- `scp` for file copy involving SSH hosts
-- `rsync` on both participating hosts for file sync
-- `systemctl` for systemd service actions and journald for log actions
-- Git for repository inspection
-- provider network access only when a configured provider action is invoked
-- native database clients only for the capabilities that use them
-
-APX reports a missing capability instead of installing it.
-
-## Plugins
-
-A plugin is a Python entry point in the `apx.plugins` group. Its loaded
-object implements `setup(api)`. The API can register actions, subscribe to or
-emit events, and contribute resources, capabilities, or contexts. Older
-`register(action_registry)` plugins remain supported.
-
-The bundled optional `discord_webhook` plugin demonstrates AXP event delivery
-to an external provider without an SDK. Enable it in TOML and place the URL in
-the configured environment variable. The URL is never stored in configuration
-or returned to callers.
-
-Plugins publish inspectable metadata: name, version, description, AXP
-compatibility, resources/actions/events, optional dependencies, and credential
-requirements. Metadata inspection does not invoke plugin actions.
-
-Bundled, standard-library integrations cover Porkbun, Cloudflare, GoDaddy,
-Discord, OpenAI, Airtable, DigitalOcean, Supabase, PostgreSQL/MySQL resources,
-and AWS/DigitalOcean/Supabase database representations. They are shown as
-`available_not_configured` until explicitly enabled. Provider actions are a
-curated read-only catalog, not a dump of every endpoint. No provider SDK is a
-base dependency.
-
-`VersionInfo` separates installed, configured, detected, API-family, supported,
-deprecated, recommended, and latest-known information. Compatibility is one of
-`current`, `supported`, `deprecated`, `unsupported`, `unknown`, or
-`update_available`; APX reports this information and never upgrades a
-provider or host automatically.
-The official references used for bundled metadata are recorded in
-[`docs/provider-versions.md`](docs/provider-versions.md).
-
-## Relationships and extension scaffolds
-
-`apx relationships` returns AXP `ResourceRelationship` records. Project
-locations automatically become relationships such as `developed_on`,
-`runs_on`, and `backed_up_to`; arbitrary relationships may be declared in TOML.
-There is no graph database.
-
-`apx groups`, `apx group show`, and `resource.list` provide simple
-group/tag queries. CLI group edits use a small user-owned JSON overlay beside
-the TOML file rather than introducing a database.
-
-`apx create plugin|action|adapter NAME` writes two to four small files.
-The plugin scaffold is an installable entry-point package with metadata, one
-example AXP action, a lazy credential-reference example, and a test. Generated
-actions and adapters similarly contain one implementation and one test.
-Once installed, plugin actions automatically appear in Python and MCP, and are
-available to humans through `apx run`. Destructive actions still require
-`--yes`.
-
-## First run and diagnosis
-
-`apx init` discovers the local host, prints its capabilities, optionally
-accepts and validates SSH hosts, and writes minimal TOML. It never installs
-software. `apx doctor` validates configuration, connectivity, host
-capabilities, missing optional commands, plugin health, and MCP tool creation.
-It also summarizes integrations, API compatibility, credential health,
-configured databases, service managers, schedulers, connections, and Tailscale
-availability without contacting unconfigured providers.
-
-## Safety
-
-There is no raw-shell action. Arguments are passed as argv locally and are
-shell-quoted for SSH. Services and host names are validated. Secrets are not
-part of the configuration schema or discovery output. APX never installs
-remote software during inspection.
+Copyright (c) 2026 Ethan Gegos.

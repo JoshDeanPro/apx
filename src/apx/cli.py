@@ -34,11 +34,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--actor",help="acting identity, e.g. agent:claude:mac (defaults to the configured default_actor)")
     sub=parser.add_subparsers(dest="command",required=False)
     init=sub.add_parser("init",help="discover this machine and create minimal configuration")
-    init.add_argument("--output",default="apx.toml")
+    init.add_argument("--output",default=None,help="where to write the config (default: $APX_HOME/config.toml)")
     init.add_argument("--host",action="append",default=[],metavar="NAME=SSH_TARGET")
     init.add_argument("--non-interactive",action="store_true")
     init.add_argument("--force",action="store_true")
-    sub.add_parser("doctor",help="diagnose configuration, hosts, plugins, and MCP")
+    doctor_parser=sub.add_parser("doctor",help="diagnose this installation: state placement, node identity, hosts, credentials, plugins, MCP")
+    doctor_parser.add_argument("--json",action="store_true",help="emit the full report instead of the summary")
     sub.add_parser("menu",help="interactive terminal UI: arrow keys/j,k move, enter select, esc back, / filter")
     sub.add_parser("start",help="open the interactive TUI (same as running apx with no arguments)")
     serve=sub.add_parser("serve",help="expose the full action registry over HTTP (the same Action Provider protocol any apx system speaks) -- for a website/app to discover and call")
@@ -70,10 +71,15 @@ def main(argv: list[str] | None = None) -> int:
     create=sub.add_parser("create",help="scaffold an extension"); create.add_argument("kind",choices=["plugin","action","adapter"]); create.add_argument("name"); create.add_argument("--output",default=".")
     run=sub.add_parser("run",help="run any configured APX action"); run.add_argument("action"); run.add_argument("--input",default="{}",help="JSON object of action inputs")
     run.add_argument("--auth-context",help="JSON object asserting an authenticated actor context, required by some provider (e.g. browser.*) consequential actions -- e.g. '{\"principal_id\":\"human:ethan\"}'")
-    update=sub.add_parser("update",help="check for or apply an apx git update (fast-forward only, reinstalls only if dependencies changed)")
-    update.add_argument("verb",nargs="?",default="apply",choices=["check","apply"])
+    update=sub.add_parser("update",help="update the APX software, leaving local state alone (a checkout fast-forwards; an installed runtime installs its configured source)")
+    update.add_argument("verb",nargs="?",default="apply",choices=["check","apply","push"])
+    update.add_argument("hosts",nargs="*",help="for `push`: which Nodes to update (default: every Node that is not this machine)")
+    update.add_argument("--from",dest="source",help="wheel, sdist, directory, URL or pip requirement to install (installed runtimes only)")
     update.add_argument("--no-reinstall",dest="reinstall",action="store_false",default=True)
     sub.add_parser("version",help="report the running apx version and git commit")
+    config_parser=sub.add_parser("config",help="show where this installation keeps its configuration and state, or move it out of a source checkout")
+    config_parser.add_argument("verb",nargs="?",default="show",choices=["show","migrate"])
+    config_parser.add_argument("--from",dest="source",help="config to migrate (default: the resolved one)")
     install=sub.add_parser("install",help="install APX as a native capability inside a supported AI coding agent (slash command / skill -- not MCP)")
     install.add_argument("agent",choices=["claude-code","codex","kimi-code","deepseek-code","hermes"])
     install.add_argument("--output",default=".",help="project root to install project-scoped config into (ignored with --global)")
@@ -175,8 +181,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--add-keys",action="store_true",help="shortcut: open the TUI directly on Credentials, to add an API key/token")
     args=parser.parse_args(argv)
     if args.doctor:
-        from .doctor import diagnose
-        result=diagnose(args.config); output(result); return 0 if result["ok"] else 1
+        from .doctor import diagnose, summarize
+        result=diagnose(args.config); print(summarize(result)); return 0 if result["ok"] else 1
     if args.command is None or args.command=="start":
         # No subcommand (or the friendlier `apx start`) opens the TUI -- the same
         # idea as OpenClaw's bare invocation dropping you straight into its wizard,
@@ -201,11 +207,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command=="init":
         from .setup import initialize
-        try: output(initialize(args.output,ssh_hosts=args.host,interactive=not args.non_interactive,force=args.force)); return 0
+        from .config import apx_home
+        destination=Path(args.output).expanduser() if args.output else apx_home()/"config.toml"
+        try: output(initialize(destination,ssh_hosts=args.host,interactive=not args.non_interactive,force=args.force)); return 0
         except Exception as error: output({"ok":False,"error":str(error)}); return 1
     if args.command=="doctor":
-        from .doctor import diagnose
-        result=diagnose(args.config); output(result); return 0 if result["ok"] else 1
+        from .doctor import diagnose, summarize
+        result=diagnose(args.config)
+        if args.json: output(result)
+        else: print(summarize(result))
+        return 0 if result["ok"] else 1
     if args.command=="create":
         from .scaffold import create
         try: output(create(args.kind,args.name,args.output)); return 0
@@ -213,10 +224,38 @@ def main(argv: list[str] | None = None) -> int:
     if args.command=="version":
         from .selfupdate import version_info
         output(version_info()); return 0
+    if args.command=="config":
+        from .config import apx_home,default_config_path,is_source_checkout,migrate_into_home,state_files
+        resolved=Path(args.config).expanduser() if args.config else default_config_path()
+        if args.verb=="migrate":
+            source=Path(args.source).expanduser() if args.source else resolved
+            try: output(migrate_into_home(source)); return 0
+            except Exception as error: output({"ok":False,"error":str(error)}); return 1
+        output({"home":str(apx_home()),"config":str(resolved),"exists":resolved.exists(),
+                "in_source_checkout":is_source_checkout(resolved),
+                "state":[str(path) for path in state_files(resolved) if path.exists()]})
+        return 0
     if args.command=="update":
-        from .selfupdate import UpdateError, apply_update, check_for_updates
-        if args.verb=="check": output(check_for_updates()); return 0
-        try: output(apply_update(reinstall=args.reinstall)); return 0
+        from .selfupdate import UpdateError, apply_update, check_for_updates, push_to_host
+        document={}
+        try:
+            from .config import load_document
+            _,document=load_document(args.config)
+        except Exception: pass  # updating the software must not require a valid config
+        if args.verb=="check": output(check_for_updates(source=args.source,config=document)); return 0
+        if args.verb=="push":
+            from .config import load
+            try:
+                hosts,_=load(args.config)
+                targets=[hosts[name] for name in (args.hosts or [h for h,v in hosts.items() if not v.is_self])]
+            except KeyError as error: output({"ok":False,"error":f"unknown host {error}"}); return 2
+            except Exception as error: output({"ok":False,"error":str(error)}); return 1
+            results,failures=[],0
+            for host in targets:
+                try: results.append(push_to_host(host))
+                except UpdateError as error: results.append({"host":host.name,"ok":False,"error":str(error)}); failures+=1
+            output({"ok":failures==0,"nodes":results}); return 1 if failures else 0
+        try: output(apply_update(reinstall=args.reinstall,source=args.source,config=document)); return 0
         except UpdateError as error: output({"ok":False,"error":str(error)}); return 1
     if args.command=="install":
         from pathlib import Path as _Path

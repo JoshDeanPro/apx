@@ -1,504 +1,3028 @@
-# SPDX-License-Identifier: MPL-2.0
-"""`apx menu` -- an interactive terminal UI over the same deterministic Action
-runtime the scripted CLI uses. Arrow keys / j,k to move, Enter to select, Esc
-to go back (or quit at the root), `/` to filter the current list. Nothing here
-bypasses APX authorization: every action still goes through cloud.run(), with
-the same confirmation/--yes-equivalent gate the scripted CLI applies.
-
-Deliberately stdlib-only (curses) -- no new dependency for a CLI whose whole
-premise is a small, auditable, always-available surface. The visual language
-(a single accent color, a connector glyph tying a title to its list, a filled
-marker on the selected row instead of a block of reverse video, dim chrome
-everywhere else) is deliberately modeled on `@clack/prompts` -- the Node.js
-prompt library OpenClaw's own onboarding wizard is built on -- adapted to
-curses rather than ported, since there is no line-for-line equivalent between
-a React/Ink-style renderer and a curses redraw loop.
-"""
 from __future__ import annotations
 
-import curses
+import getpass
 import json
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
-from .cloud import APX
+from prompt_toolkit import Application
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import Layout
+from prompt_toolkit.layout.controls import (
+    FormattedTextControl,
+)
+from prompt_toolkit.layout.containers import (
+    HSplit,
+    Window,
+)
+from prompt_toolkit.styles import Style
 
-ESC = 27
-ENTER = (10, 13)
-BACKSPACE = (curses.KEY_BACKSPACE, 127, 8) if hasattr(curses, "KEY_BACKSPACE") else (127, 8)
+from rich.console import Console
+from rich.table import Table
 
-# clack's palette is one accent color used consistently for anything "active"
-# (the current step marker, the selected row, the prompt caret) plus dimmed
-# text for everything structural -- not a wall of different colors. Falls back
-# to no color at all on a terminal that doesn't support it (start_color()
-# raising is handled in TUI.__init__), which is why every draw call still
-# works with attr=0 as the default.
-_ACCENT = 1   # cyan: active/selected
-_GOOD = 2     # green: success / non-destructive confirm
-_WARN = 3     # yellow: destructive confirm prompt
-_DIM = 4      # the connector line, hints, unselected chrome
+from .network_state import (
+    NETWORK_FILE,
+    cached as network_cached,
+    refresh as network_refresh,
+    run_remote,
+)
+from .providers_builtin import (
+    porkbun_domains,
+    purelymail_credit,
+    purelymail_create_user,
+    purelymail_delete_user,
+    purelymail_domains,
+    purelymail_users,
+)
+
+HOME = Path.home()
+
+CONFIG = HOME / ".config" / "apx"
+STATE = HOME / ".local" / "state" / "apx"
+SHARE = HOME / ".local" / "share" / "apx"
+
+REAL = (
+    SHARE
+    / "runtime"
+    / "bin"
+    / "apx"
+)
+
+META = CONFIG / "tui.json"
+CHANNELS = CONFIG / "channels.json"
+LINKS = CONFIG / "links.json"
+STANDING = CONFIG / "standing-agents.json"
+
+VOICE_CONFIG = CONFIG / "voice.json"
+VOICE_PID = STATE / "voice" / "daemon.pid"
+
+console = Console()
 
 
-class Quit(Exception):
-    """Raised to unwind the whole menu, not just one screen."""
+@dataclass
+class Item:
+    key: str
+    label: str
+    detail: str = ""
+    kind: str = ""
+    data: dict[str, Any] = field(
+        default_factory=dict
+    )
 
 
-class TUI:
-    def __init__(self, stdscr: "curses._CursesWindow", cloud: "APX | None", actor: str):
-        self.stdscr = stdscr
-        self.cloud = cloud
-        self.actor = actor
-        self.color = False
-        curses.curs_set(0)
-        try:
-            curses.use_default_colors()
-            curses.init_pair(_ACCENT, curses.COLOR_CYAN, -1)
-            curses.init_pair(_GOOD, curses.COLOR_GREEN, -1)
-            curses.init_pair(_WARN, curses.COLOR_YELLOW, -1)
-            curses.init_pair(_DIM, curses.COLOR_WHITE, -1)  # dimmed via A_DIM, not a gray color pair
-            self.color = True
-        except curses.error: pass
-        stdscr.keypad(True)
+@dataclass
+class Screen:
+    key: str
+    title: str
+    context: dict[str, Any] = field(
+        default_factory=dict
+    )
+    index: int = 0
+    multi: set[str] = field(
+        default_factory=set
+    )
 
-    def _attr(self, pair: int, extra: int = 0) -> int:
-        return (curses.color_pair(pair) | extra) if self.color else extra
 
-    # ------------------------------------------------------------------ primitives
+def load_json(
+    path: Path,
+    default: Any,
+) -> Any:
+    try:
+        return json.loads(
+            path.read_text()
+        )
+    except Exception:
+        return default
 
-    def choose(self, title: str, items: list[tuple[str, str]], footer: str = "") -> int | None:
-        """items: (label, hint) pairs. Returns the selected index into `items`, or None on Esc/q."""
-        query, idx, typing = "", 0, False
-        default_footer = footer or "↑/↓ move   enter select   / filter   esc back"
-        while True:
-            filtered = [i for i, (label, _) in enumerate(items) if query.lower() in label.lower()]
-            idx = min(idx, max(0, len(filtered) - 1))
-            self._draw_list(title, items, filtered, idx, query, typing, default_footer)
-            key = self.stdscr.getch()
-            if typing:
-                if key in ENTER or key == ESC: typing = False
-                elif key in BACKSPACE: query = query[:-1]
-                elif 32 <= key < 127: query += chr(key)
-                continue
-            if key in (curses.KEY_UP, ord("k")): idx = max(0, idx - 1)
-            elif key in (curses.KEY_DOWN, ord("j")): idx = min(len(filtered) - 1, idx + 1) if filtered else 0
-            elif key in ENTER:
-                if filtered: return filtered[idx]
-            elif key == ord("/"): typing = True
-            elif key in (ord("q"), ord("Q"), ESC):
-                if query: query, idx = "", 0
-                else: return None
 
-    def _draw_list(self, title, items, filtered, idx, query, typing, footer) -> None:
-        # clack's signature shape: a filled diamond marks the active step, a
-        # vertical bar connects it down to its list, and only the selected row
-        # carries color -- everything else stays plain/dim so the one thing
-        # that changed (your position) is the only thing that draws the eye.
-        stdscr = self.stdscr
-        stdscr.erase()
-        height, width = stdscr.getmaxyx()
-        stdscr.addnstr(0, 0, "◆ ", width - 1, self._attr(_ACCENT, curses.A_BOLD))
-        stdscr.addnstr(0, 2, title, width - 3, curses.A_BOLD)
-        top = 2
-        visible = height - top - 2
-        start = max(0, idx - visible + 1) if idx >= visible else 0
-        for row, pos in enumerate(filtered[start:start + visible]):
-            label, hint = items[pos]
-            selected = (start + row) == idx
-            stdscr.addnstr(top + row, 0, "│", 1, self._attr(_DIM, curses.A_DIM))
-            marker = "❯" if selected else " "
-            stdscr.addnstr(top + row, 2, marker, 1, self._attr(_ACCENT, curses.A_BOLD))
-            label_attr = self._attr(_ACCENT, curses.A_BOLD) if selected else curses.A_NORMAL
-            stdscr.addnstr(top + row, 4, label, width - 5, label_attr)
-            if hint:
-                hint_col = 4 + len(label) + 2
-                if hint_col < width - 1: stdscr.addnstr(top + row, hint_col, hint, width - hint_col - 1, curses.A_DIM)
-        if not filtered:
-            stdscr.addnstr(top, 4, "(no matches)", width - 5, curses.A_DIM)
-        stdscr.addnstr(top + visible, 0, "└", 1, self._attr(_DIM, curses.A_DIM))
-        status = f"/{query}" if typing or query else footer
-        stdscr.addnstr(height - 1, 0, status, width - 1, curses.A_DIM)
-        stdscr.refresh()
+def save_json(
+    path: Path,
+    value: Any,
+) -> None:
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    def message(self, lines: list[str], title: str = "") -> None:
-        stdscr = self.stdscr
-        stdscr.erase()
-        height, width = stdscr.getmaxyx()
-        row = 0
-        if title:
-            stdscr.addnstr(row, 0, "◆ ", width - 1, self._attr(_ACCENT, curses.A_BOLD))
-            stdscr.addnstr(row, 2, title, width - 3, curses.A_BOLD); row += 2
-        for line in lines[: height - row - 2]:
-            stdscr.addnstr(row, 0, "│", 1, self._attr(_DIM, curses.A_DIM))
-            stdscr.addnstr(row, 2, line, width - 3); row += 1
-        stdscr.addnstr(row, 0, "└", 1, self._attr(_DIM, curses.A_DIM))
-        stdscr.addnstr(height - 1, 0, "any key to continue", width - 1, curses.A_DIM)
-        stdscr.refresh()
-        stdscr.getch()
+    tmp = path.with_suffix(
+        path.suffix + ".tmp"
+    )
 
-    def confirm(self, prompt: str, *, danger: bool = False) -> bool:
-        stdscr = self.stdscr
-        stdscr.erase()
-        height, width = stdscr.getmaxyx()
-        pair = _WARN if danger else _GOOD
-        stdscr.addnstr(height // 2, 0, "◆ ", width - 1, self._attr(pair, curses.A_BOLD))
-        stdscr.addnstr(height // 2, 2, f"{prompt}", width - 3, curses.A_BOLD)
-        stdscr.addnstr(height // 2 + 1, 2, "  [y] yes    [N] no", width - 3, curses.A_DIM)
-        stdscr.refresh()
-        return stdscr.getch() in (ord("y"), ord("Y"))
+    tmp.write_text(
+        json.dumps(
+            value,
+            indent=2,
+        )
+        + "\n"
+    )
 
-    def read_line(self, prompt: str, default: str = "") -> str | None:
-        stdscr = self.stdscr
-        value = default
-        curses.curs_set(1)
-        try:
-            while True:
-                height, width = stdscr.getmaxyx()
-                stdscr.erase()
-                stdscr.addnstr(height // 2, 0, "◆ ", width - 1, self._attr(_ACCENT, curses.A_BOLD))
-                stdscr.addnstr(height // 2, 2, f"{prompt}", width - 3, curses.A_BOLD)
-                stdscr.addnstr(height // 2 + 1, 2, f"│ {value}", width - 3, self._attr(_ACCENT))
-                stdscr.refresh()
-                key = stdscr.getch()
-                if key in ENTER: return value
-                if key == ESC: return None
-                if key in BACKSPACE: value = value[:-1]
-                elif 32 <= key < 127: value += chr(key)
-        finally:
-            curses.curs_set(0)
+    os.chmod(tmp, 0o600)
+    tmp.replace(path)
 
-    # ------------------------------------------------------------------ action execution
 
-    def run_action(self, name: str, **inputs: Any):
-        """Mirrors the scripted CLI's `run`/`blueprint apply`/etc. gate: destructive or
-        confirmation-required actions get an explicit y/n before anything executes."""
-        action = self.cloud.actions.get(name)
-        confirmation = None
-        if action.destructive and not self.confirm(f"{name} is destructive. Proceed?", danger=True):
-            return None
-        if action.confirmation != "none":
-            confirmation = {"level": action.confirmation, "confirmed": True, "authorization_id": f"tui:{name}"}
-        return self.cloud.run(name, actor=self.actor, confirmation=confirmation, **inputs)
+def pause() -> None:
+    try:
+        input(
+            "\nPress Return to return to APX..."
+        )
+    except (
+        EOFError,
+        KeyboardInterrupt,
+    ):
+        pass
 
-    def show_result(self, result, title: str = "") -> None:
-        if result is None:  # user declined the confirm prompt
-            return
-        if not result.ok:
-            detail = result.error.to_dict() if result.error else {"error": "unknown error"}
-            self.message(_format_lines(detail), title=title or f"{result.action} failed")
-            return
-        self.message(_format_lines(result.result), title=title or result.action)
 
-    # ------------------------------------------------------------------ screens
-
-    def root(self, start_screen: str | None = None) -> None:
-        items = [
-            ("Doctor", "run diagnostics"),
-            ("Servers", "configured Hosts: status, services"),
-            ("Credentials", "API keys, tokens -- add/inspect (values never shown)"),
-            ("Standing Agents", "list, inspect, start/stop the loop"),
-            ("Blueprints", "versioned action graphs"),
-            ("Grants", "delegated authority"),
-            ("Search", "deterministic local search"),
-            ("System state", "normal / incident / lockdown"),
-            ("Plugins", "loaded plugin health"),
-            ("Command palette", "jump straight to any registered Action"),
+def native(
+    *args: str,
+) -> int:
+    return subprocess.call(
+        [
+            str(REAL),
+            *args,
         ]
-        screens: list[Callable[[], None]] = [
-            self.screen_doctor, self.screen_servers, self.screen_credentials, self.screen_agents,
-            self.screen_blueprints, self.screen_grants, self.screen_search,
-            self.screen_state, self.screen_plugins, self.screen_palette,
+    )
+
+
+def native_capture(
+    *args: str,
+) -> str:
+    p = subprocess.run(
+        [
+            str(REAL),
+            *args,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+    )
+
+    return p.stdout.strip()
+
+
+def voice_state() -> tuple[str, str]:
+    cfg = load_json(
+        VOICE_CONFIG,
+        {},
+    )
+
+    if not isinstance(cfg, dict):
+        cfg = {}
+
+    enabled = bool(
+        cfg.get(
+            "enabled",
+            False,
+        )
+    )
+
+    mode = str(
+        cfg.get(
+            "mode",
+            "off",
+        )
+    ).replace(
+        "_",
+        " ",
+    )
+
+    running = False
+
+    try:
+        pid = int(
+            VOICE_PID.read_text().strip()
+        )
+        os.kill(
+            pid,
+            0,
+        )
+        running = True
+    except Exception:
+        pass
+
+    if not enabled:
+        return (
+            "OFF",
+            mode,
+        )
+
+    return (
+        (
+            "LISTENING"
+            if running
+            else "READY"
+        ),
+        mode,
+    )
+
+
+def channels_data() -> dict[str, Any]:
+    value = load_json(
+        CHANNELS,
+        {},
+    )
+
+    if not isinstance(value, dict):
+        value = {}
+
+    defaults = {
+        "terminal": {
+            "type": "terminal",
+            "enabled": True,
+            "purposes": [
+                "approvals",
+                "agent-replies",
+            ],
+        },
+        "openpower": {
+            "type": "openpower",
+            "enabled": True,
+            "purposes": [
+                "status",
+            ],
+        },
+        "email": {
+            "type": "email",
+            "enabled": False,
+            "purposes": [],
+        },
+        "discord": {
+            "type": "discord",
+            "enabled": False,
+            "purposes": [],
+        },
+    }
+
+    for key, default in defaults.items():
+        value.setdefault(
+            key,
+            default,
+        )
+
+    return value
+
+
+def save_channels(
+    value: dict[str, Any],
+) -> None:
+    save_json(
+        CHANNELS,
+        value,
+    )
+
+
+def links_data() -> dict[str, Any]:
+    value = load_json(
+        LINKS,
+        {},
+    )
+
+    if not isinstance(value, dict):
+        value = {}
+
+    value.setdefault(
+        "credentials",
+        {},
+    )
+    value.setdefault(
+        "agents",
+        {},
+    )
+
+    return value
+
+
+def save_links(
+    value: dict[str, Any],
+) -> None:
+    save_json(
+        LINKS,
+        value,
+    )
+
+
+def standing_data() -> dict[str, Any]:
+    value = load_json(
+        STANDING,
+        {},
+    )
+
+    if not isinstance(value, dict):
+        return {}
+
+    return value
+
+
+def save_standing(
+    value: dict[str, Any],
+) -> None:
+    save_json(
+        STANDING,
+        value,
+    )
+
+
+def projects() -> list[Path]:
+    result: list[Path] = []
+
+    direct = [
+        HOME / "apx",
+        HOME / "openpower",
+        HOME / "Projects",
+    ]
+
+    for path in direct:
+        if path.exists():
+            result.append(path)
+
+    root = HOME / "Projects"
+
+    if root.is_dir():
+        try:
+            for child in sorted(
+                root.iterdir()
+            ):
+                if child.is_dir():
+                    result.append(child)
+        except Exception:
+            pass
+
+    seen = set()
+    final = []
+
+    for path in result:
+        key = str(
+            path.resolve()
+        )
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        final.append(path)
+
+    return final
+
+
+def credential_ids() -> list[str]:
+    result = {
+        "porkbun_api_key",
+        "porkbun_secret_key",
+        "purelymail_credential",
+        "cloudflare_credential",
+        "discord_bot_credential",
+        "openai_credential",
+        "paddle_credential",
+    }
+
+    config_file = (
+        CONFIG / "config.toml"
+    )
+
+    if config_file.exists():
+        try:
+            text = config_file.read_text()
+
+            for match in re.findall(
+                r"\b"
+                r"([A-Za-z0-9_.-]+"
+                r"(?:credential|api_key|secret_key|token))"
+                r"\b",
+                text,
+                flags=re.I,
+            ):
+                result.add(
+                    match
+                )
+        except Exception:
+            pass
+
+    links = links_data()
+
+    result.update(
+        links.get(
+            "credentials",
+            {},
+        ).keys()
+    )
+
+    return sorted(result)
+
+
+def agent_records() -> list[dict[str, Any]]:
+    network = network_cached()
+
+    result = []
+
+    for machine, info in network.get(
+        "machines",
+        {},
+    ).items():
+        for agent, details in info.get(
+            "agents",
+            {},
+        ).items():
+            result.append(
+                {
+                    "machine": machine,
+                    "machine_name": info.get(
+                        "name",
+                        machine,
+                    ),
+                    "online": info.get(
+                        "online",
+                        False,
+                    ),
+                    "agent": agent,
+                    **details,
+                }
+            )
+
+    return result
+
+
+def current_screen_items(
+    screen: Screen,
+) -> list[Item]:
+    key = screen.key
+
+    if key == "main":
+        voice_status, voice_mode = (
+            voice_state()
+        )
+
+        network = network_cached()
+
+        machine_count = len(
+            network.get(
+                "machines",
+                {},
+            )
+        )
+
+        online_count = sum(
+            1
+            for value in network.get(
+                "machines",
+                {},
+            ).values()
+            if value.get("online")
+        )
+
+        return [
+            Item(
+                "computers",
+                "Computers",
+                f"{online_count}/{machine_count} online",
+            ),
+            Item(
+                "agents",
+                "AI Agents",
+                "Claude, Codex, standing sessions",
+            ),
+            Item(
+                "credentials",
+                "Passwords & API Keys",
+                "Tokens, links, permissions",
+            ),
+            Item(
+                "plugins",
+                "Plugins & Services",
+                "Porkbun, Purelymail, APIs",
+            ),
+            Item(
+                "channels",
+                "Channels",
+                "Multi-channel routing",
+            ),
+            Item(
+                "projects",
+                "Projects",
+                "Link projects to agents and credentials",
+            ),
+            Item(
+                "voice",
+                "Voice Agent",
+                f"{voice_status} • {voice_mode}",
+            ),
+            Item(
+                "network",
+                "Network",
+                "Direct APX computer routes",
+            ),
+            Item(
+                "system",
+                "System",
+                "Doctor, native APX, update",
+            ),
         ]
-        by_name = {"doctor": 0, "servers": 1, "credentials": 2, "agents": 3, "blueprints": 4,
-                   "grants": 5, "search": 6, "state": 7, "plugins": 8, "palette": 9}
-        if start_screen in by_name:
-            screens[by_name[start_screen]]()  # one-shot jump (e.g. `apx --add-keys`); falls through to the normal root loop after
-        while True:
-            choice = self.choose("apx", items, footer="↑/↓ move   enter select   / filter   esc/q quit")
-            if choice is None: return
-            screens[choice]()
 
-    def screen_doctor(self) -> None:
-        from .doctor import diagnose
-        result = diagnose(self.cloud.config_path if hasattr(self.cloud, "config_path") else None)
-        self.message(_format_lines(result), title="doctor")
+    if key == "computers":
+        network = network_cached()
 
-    def screen_credentials(self) -> None:
-        while True:
-            ids = sorted(self.cloud.credentials.references) if hasattr(self.cloud, "credentials") else []
-            hints = []
-            for cred_id in ids:
-                outcome = self.run_action("secret.health", id=cred_id)
-                hints.append("set" if outcome and outcome.ok and outcome.result.get("available") else "empty")
-            items = [(cred_id, hint) for cred_id, hint in zip(ids, hints)] + [("+ Set a value", "for one of the ids above, or a new one declared in apx.toml")]
-            choice = self.choose("Credentials", items, footer="enter inspect/set   esc back")
-            if choice is None: return
-            if choice == len(ids): self.screen_add_credential()
-            else: self.show_result(self.run_action("secret.health", id=ids[choice]), title=ids[choice])
+        items = []
 
-    def screen_add_credential(self) -> None:
-        credential_id = self.read_line("Credential id (must already be declared under [credentials.<id>] in apx.toml)")
-        if not credential_id: return
-        value = self.read_line("Value (input is visible -- run this over a private terminal)")
-        if value is None: return
-        self.show_result(self.run_action("secret.set", id=credential_id, value=value), title=f"secret.set {credential_id}")
+        for machine, info in network.get(
+            "machines",
+            {},
+        ).items():
+            online = bool(
+                info.get(
+                    "online",
+                    False,
+                )
+            )
 
-    def screen_servers(self) -> None:
-        while True:
-            result = self.cloud.run("host.list", actor=self.actor)
-            if not result.ok: self.show_result(result); return
-            hosts = result.result.get("hosts", [])
-            if not hosts: self.message(["No hosts configured in apx.toml."], title="Servers"); return
-            items = [(h["name"], ", ".join(h.get("tags", ())) or h.get("transport", "")) for h in hosts]
-            choice = self.choose("Servers", items)
-            if choice is None: return
-            self.screen_host_detail(hosts[choice])
+            apx = info.get(
+                "apx",
+                {},
+            )
 
-    def screen_host_detail(self, host: dict[str, Any]) -> None:
-        name = host["name"]
-        while True:
-            items = [
-                ("Status", "host.status"),
-                ("Services", "list + start/stop/restart"),
-                ("Info", f"tags={list(host.get('tags', ()))} groups={list(host.get('groups', ()))} roles={list(host.get('roles', ()))}"),
-            ]
-            choice = self.choose(f"Server: {name}", items)
-            if choice is None: return
-            if choice == 0: self.show_result(self.run_action("host.status", host=name))
-            elif choice == 1: self.screen_services(name)
-            else: self.message(_format_lines(host), title=name)
+            detail = (
+                (
+                    "ONLINE"
+                    if online
+                    else "OFFLINE"
+                )
+                + " • "
+                + str(
+                    info.get(
+                        "role",
+                        "",
+                    )
+                )
+            )
 
-    def screen_services(self, host: str) -> None:
-        while True:
-            result = self.cloud.run("service.list", actor=self.actor, host=host)
-            if not result.ok: self.show_result(result); return
-            services = result.result.get("services", []) if isinstance(result.result, dict) else result.result
-            if not services: self.message(["No services reported."], title=f"{host}: services"); return
-            labels = [s["name"] if isinstance(s, dict) else str(s) for s in services]
-            items = [(label, "") for label in labels]
-            choice = self.choose(f"{host}: services", items)
-            if choice is None: return
-            self.screen_service_control(host, labels[choice])
+            if online:
+                latency = info.get(
+                    "latency_ms"
+                )
 
-    def screen_service_control(self, host: str, service: str) -> None:
-        items = [("Status", ""), ("Start", ""), ("Stop", "destructive"), ("Restart", "destructive")]
-        verbs = ["status", "start", "stop", "restart"]
-        while True:
-            choice = self.choose(f"{host}: {service}", items)
-            if choice is None: return
-            self.show_result(self.run_action(f"service.{verbs[choice]}", host=host, service=service))
+                if latency is not None:
+                    detail += (
+                        f" • {latency} ms"
+                    )
 
-    def screen_agents(self) -> None:
-        while True:
-            result = self.cloud.run("agent.list", actor=self.actor)
-            if not result.ok: self.show_result(result); return
-            agents = result.result.get("agents", [])
-            if not agents: self.message(["No Standing Agents set up yet (apx agent setup)."], title="Standing Agents"); return
-            items = [(a["name"], f"{a['host']} · {a['runtime']}") for a in agents]
-            choice = self.choose("Standing Agents", items)
-            if choice is None: return
-            self.screen_agent_detail(agents[choice])
+                detail += (
+                    " • APX "
+                    + (
+                        "ready"
+                        if apx.get(
+                            "installed"
+                        )
+                        else "missing"
+                    )
+                )
 
-    def screen_agent_detail(self, agent: dict[str, Any]) -> None:
-        name, host, unit = agent["name"], agent["host"], agent["unit_name"]
-        while True:
-            items = [
-                ("Inspect", "current status"),
-                ("Logs", "recent journal lines"),
-                ("Start loop", ""),
-                ("Stop loop", "destructive"),
-                ("Restart loop", "destructive"),
-                ("Remove", "stop tracking (add purge via CLI for full teardown)"),
-            ]
-            choice = self.choose(f"Agent: {name}", items)
-            if choice is None: return
-            if choice == 0: self.show_result(self.run_action("agent.inspect", name=name))
-            elif choice == 1:
-                result = self.run_action("agent.logs", name=name, lines=100)
-                if result and result.ok:
-                    logs = result.result.get("logs") or result.result.get("lines") or result.result
-                    self.message(_format_lines(logs), title=f"{name}: logs")
-                else:
-                    self.show_result(result)
-            elif choice == 2: self.show_result(self.run_action("service.start", host=host, service=unit))
-            elif choice == 3: self.show_result(self.run_action("service.stop", host=host, service=unit))
-            elif choice == 4: self.show_result(self.run_action("service.restart", host=host, service=unit))
+            items.append(
+                Item(
+                    machine,
+                    info.get(
+                        "name",
+                        machine,
+                    ),
+                    detail,
+                    "computer",
+                    {
+                        "machine": machine,
+                    },
+                )
+            )
+
+        return items
+
+    if key == "computer":
+        machine = screen.context[
+            "machine"
+        ]
+
+        network = network_cached()
+
+        info = network.get(
+            "machines",
+            {},
+        ).get(
+            machine,
+            {},
+        )
+
+        return [
+            Item(
+                "agents",
+                "AI Agents",
+                "Installed / ready / running",
+            ),
+            Item(
+                "shell",
+                "Open Shell",
+                str(
+                    info.get(
+                        "target"
+                    )
+                    or "local"
+                ),
+            ),
+            Item(
+                "doctor",
+                "Run APX Doctor",
+            ),
+            Item(
+                "version",
+                "APX Version",
+            ),
+            Item(
+                "refresh",
+                "Refresh This Computer",
+            ),
+        ]
+
+    if key == "agents":
+        result = []
+
+        standing = standing_data()
+
+        for record in agent_records():
+            machine = record["machine"]
+            agent = record["agent"]
+
+            identifier = (
+                f"{machine}:{agent}"
+            )
+
+            installed = record.get(
+                "installed",
+                False,
+            )
+
+            online = record.get(
+                "online",
+                False,
+            )
+
+            processes = int(
+                record.get(
+                    "processes",
+                    0,
+                )
+                or 0
+            )
+
+            requested = bool(
+                standing.get(
+                    identifier,
+                    {},
+                ).get(
+                    "standing",
+                    False,
+                )
+            )
+
+            if not online:
+                state = "OFFLINE"
+            elif not installed:
+                state = "NOT INSTALLED"
+            elif processes:
+                state = (
+                    f"RUNNING ({processes})"
+                )
             else:
-                self.show_result(self.run_action("agent.remove", name=name, purge=False))
+                state = "READY"
+
+            if requested:
+                state += " • STANDING"
+
+            result.append(
+                Item(
+                    identifier,
+                    (
+                        f"{agent.title()}"
+                        f"  —  "
+                        f"{record['machine_name']}"
+                    ),
+                    state,
+                    "agent",
+                    {
+                        "machine": machine,
+                        "agent": agent,
+                    },
+                )
+            )
+
+        return result
+
+    if key == "agent":
+        machine = screen.context[
+            "machine"
+        ]
+        agent = screen.context[
+            "agent"
+        ]
+
+        identifier = (
+            f"{machine}:{agent}"
+        )
+
+        standing = bool(
+            standing_data()
+            .get(
+                identifier,
+                {},
+            )
+            .get(
+                "standing",
+                False,
+            )
+        )
+
+        return [
+            Item(
+                "start",
+                "Start Interactive Session",
+            ),
+            Item(
+                "standing",
+                (
+                    "Disable Standing Agent"
+                    if standing
+                    else "Make Standing Agent"
+                ),
+                (
+                    "Standing = available profile, "
+                    "separate from active model usage"
+                ),
+            ),
+            Item(
+                "attach",
+                "Attach Standing Session",
+                "Uses tmux when a standing process exists",
+            ),
+            Item(
+                "stop",
+                "Stop Standing Session",
+            ),
+            Item(
+                "project",
+                "Link Project",
+            ),
+            Item(
+                "channels",
+                "Link Channels",
+                "SPACE selects multiple",
+            ),
+            Item(
+                "refresh",
+                "Refresh Agent State",
+            ),
+        ]
+
+    if key == "credentials":
+        links = links_data().get(
+            "credentials",
+            {},
+        )
+
+        result = [
+            Item(
+                "__add__",
+                "+ Add Another Credential",
+                "Create a new APX secret reference",
+            )
+        ]
+
+        for identifier in credential_ids():
+            linked = links.get(
+                identifier,
+                {},
+            )
+
+            counts = []
+
+            for label in (
+                "agents",
+                "projects",
+                "channels",
+            ):
+                count = len(
+                    linked.get(
+                        label,
+                        [],
+                    )
+                )
+
+                if count:
+                    counts.append(
+                        f"{count} {label}"
+                    )
+
+            detail = (
+                " • ".join(counts)
+                if counts
+                else "No links"
+            )
+
+            result.append(
+                Item(
+                    identifier,
+                    identifier,
+                    detail,
+                    "credential",
+                    {
+                        "credential": (
+                            identifier
+                        )
+                    },
+                )
+            )
+
+        return result
+
+    if key == "credential":
+        identifier = screen.context[
+            "credential"
+        ]
+
+        return [
+            Item(
+                "set",
+                "Set / Replace Token",
+                "Uses APX secure secret backend",
+            ),
+            Item(
+                "reveal",
+                "Reveal Token",
+                "Explicit secret reveal",
+            ),
+            Item(
+                "remove",
+                "Remove / Revoke Token",
+                "Revokes APX credential access",
+            ),
+            Item(
+                "agents",
+                "Link AI Agents",
+                "SPACE selects multiple",
+            ),
+            Item(
+                "projects",
+                "Link Projects",
+                "SPACE selects multiple",
+            ),
+            Item(
+                "channels",
+                "Link Channels",
+                "SPACE selects multiple",
+            ),
+        ]
+
+    if key == "plugins":
+        return [
+            Item(
+                "porkbun",
+                "Porkbun",
+                "Domains + API access",
+                "plugin",
+                {
+                    "plugin": "porkbun"
+                },
+            ),
+            Item(
+                "purelymail",
+                "Purelymail",
+                "Mailboxes + domains + templates",
+                "plugin",
+                {
+                    "plugin": "purelymail"
+                },
+            ),
+        ]
+
+    if key == "plugin":
+        plugin = screen.context[
+            "plugin"
+        ]
+
+        if plugin == "porkbun":
+            return [
+                Item(
+                    "domains",
+                    "List Real Domains",
+                ),
+                Item(
+                    "api_key",
+                    "Set Porkbun API Key",
+                ),
+                Item(
+                    "secret_key",
+                    "Set Porkbun Secret Key",
+                ),
+            ]
+
+        if plugin == "purelymail":
+            return [
+                Item(
+                    "users",
+                    "List Real Mailboxes",
+                ),
+                Item(
+                    "domains",
+                    "List Real Domains",
+                ),
+                Item(
+                    "create",
+                    "Create Mailbox",
+                ),
+                Item(
+                    "template",
+                    "Create from Template",
+                    "support / alerts / noreply / admin / hello",
+                ),
+                Item(
+                    "delete",
+                    "Delete Mailbox",
+                ),
+                Item(
+                    "credit",
+                    "Account Credit",
+                ),
+                Item(
+                    "token",
+                    "Set Purelymail API Token",
+                ),
+            ]
+
+    if key == "channels":
+        result = [
+            Item(
+                "__add__",
+                "+ Add Channel",
+            )
+        ]
+
+        for name, value in channels_data().items():
+            enabled = bool(
+                value.get(
+                    "enabled",
+                    False,
+                )
+            )
+
+            purposes = value.get(
+                "purposes",
+                [],
+            )
+
+            result.append(
+                Item(
+                    name,
+                    name,
+                    (
+                        (
+                            "ON"
+                            if enabled
+                            else "OFF"
+                        )
+                        + (
+                            " • "
+                            + ", ".join(
+                                purposes
+                            )
+                            if purposes
+                            else ""
+                        )
+                    ),
+                    "channel",
+                    {
+                        "channel": name,
+                    },
+                )
+            )
+
+        return result
+
+    if key == "channel":
+        channel = screen.context[
+            "channel"
+        ]
+
+        value = channels_data().get(
+            channel,
+            {},
+        )
+
+        enabled = bool(
+            value.get(
+                "enabled",
+                False,
+            )
+        )
+
+        return [
+            Item(
+                "enabled",
+                (
+                    "Disable Channel"
+                    if enabled
+                    else "Enable Channel"
+                ),
+            ),
+            Item(
+                "purposes",
+                "Configure Uses",
+                "SPACE selects multiple",
+            ),
+            Item(
+                "remove",
+                "Remove Channel",
+            ),
+        ]
+
+    if key == "projects":
+        return [
+            Item(
+                str(path),
+                path.name,
+                str(path),
+                "project",
+                {
+                    "project": str(path)
+                },
+            )
+            for path in projects()
+        ]
+
+    if key == "project":
+        project = screen.context[
+            "project"
+        ]
+
+        return [
+            Item(
+                "agents",
+                "Link AI Agents",
+                "SPACE selects multiple",
+            ),
+            Item(
+                "channels",
+                "Link Channels",
+                "SPACE selects multiple",
+            ),
+            Item(
+                "shell",
+                "Open Project Shell",
+                project,
+            ),
+        ]
+
+    if key == "voice":
+        status, mode = voice_state()
+
+        return [
+            Item(
+                "talk",
+                "Talk Now",
+                status,
+            ),
+            Item(
+                "wake",
+                "Wake Word",
+                mode,
+            ),
+            Item(
+                "ptt",
+                "Push to Talk",
+            ),
+            Item(
+                "always",
+                "Always Listening / 24/7",
+            ),
+            Item(
+                "stop",
+                "Stop Voice Agent",
+            ),
+            Item(
+                "settings",
+                "Voice Settings",
+            ),
+        ]
+
+    if key == "network":
+        network = network_cached()
+
+        return [
+            Item(
+                "refresh",
+                "Refresh Network",
+                str(
+                    network.get(
+                        "updated_at",
+                        "never",
+                    )
+                ),
+            ),
+            Item(
+                "matrix",
+                "Show Agent Matrix",
+            ),
+            Item(
+                "raw",
+                "Show Network JSON",
+            ),
+        ]
+
+    if key == "system":
+        return [
+            Item(
+                "doctor",
+                "APX Doctor",
+            ),
+            Item(
+                "native",
+                "Native APX Menu",
+            ),
+            Item(
+                "update",
+                "Update APX",
+            ),
+            Item(
+                "push",
+                "Publish APX to VPS",
+            ),
+        ]
+
+    if key == "select":
+        return [
+            Item(
+                option,
+                option,
+            )
+            for option in screen.context.get(
+                "options",
+                [],
+            )
+        ]
+
+    return []
+
+
+STYLE = Style.from_dict(
+    {
+        "title": "bold",
+        "breadcrumb": "italic",
+        "selected": "reverse",
+        "muted": "ansibrightblack",
+        "accent": "bold",
+        "checked": "bold",
+        "footer": "ansibrightblack",
+        "danger": "bold",
+    }
+)
+
+
+class APXTUI:
+    def __init__(self) -> None:
+        self.stack = [
+            Screen(
+                "main",
+                "APX",
+            )
+        ]
+
+        self.quit = False
+
+    @property
+    def screen(self) -> Screen:
+        return self.stack[-1]
+
+    def breadcrumb(self) -> str:
+        return "  ›  ".join(
+            screen.title
+            for screen in self.stack
+        )
+
+    def render(self) -> FormattedText:
+        screen = self.screen
+
+        items = current_screen_items(
+            screen
+        )
+
+        if items:
+            screen.index = max(
+                0,
+                min(
+                    screen.index,
+                    len(items) - 1,
+                ),
+            )
+        else:
+            screen.index = 0
+
+        columns, rows = shutil.get_terminal_size(
+            (100, 30)
+        )
+
+        visible = max(
+            8,
+            rows - 9,
+        )
+
+        start = max(
+            0,
+            screen.index
+            - visible // 2,
+        )
+
+        end = min(
+            len(items),
+            start + visible,
+        )
+
+        if end - start < visible:
+            start = max(
+                0,
+                end - visible,
+            )
+
+        output: list[
+            tuple[str, str]
+        ] = []
+
+        output.extend(
+            [
+                (
+                    "class:title",
+                    "APX\n",
+                ),
+                (
+                    "class:breadcrumb",
+                    self.breadcrumb()
+                    + "\n",
+                ),
+                (
+                    "",
+                    "─"
+                    * min(
+                        columns,
+                        80,
+                    )
+                    + "\n\n",
+                ),
+            ]
+        )
+
+        if not items:
+            output.append(
+                (
+                    "class:muted",
+                    "  Nothing here yet.\n",
+                )
+            )
+
+        for index in range(
+            start,
+            end,
+        ):
+            item = items[index]
+
+            selected = (
+                index == screen.index
+            )
+
+            checked = (
+                item.key
+                in screen.multi
+            )
+
+            marker = (
+                "[✓]"
+                if checked
+                else "[ ]"
+            )
+
+            pointer = (
+                "›"
+                if selected
+                else " "
+            )
+
+            style = (
+                "class:selected"
+                if selected
+                else ""
+            )
+
+            line = (
+                f"{pointer} "
+                f"{marker} "
+                f"{item.label}"
+            )
+
+            if item.detail:
+                pad = max(
+                    2,
+                    36 - len(
+                        item.label
+                    ),
+                )
+
+                line += (
+                    " " * pad
+                    + item.detail
+                )
+
+            output.append(
+                (
+                    style,
+                    line[: max(
+                        20,
+                        columns - 1,
+                    )]
+                    + "\n",
+                )
+            )
+
+        output.extend(
+            [
+                (
+                    "",
+                    "\n",
+                ),
+                (
+                    "class:footer",
+                    "↑↓ move   "
+                    "SPACE select   "
+                    "ENTER open/toggle   "
+                    "ESC/← back   "
+                    "R refresh   "
+                    "Q quit\n",
+                ),
+            ]
+        )
+
+        return FormattedText(
+            output
+        )
+
+    def run_frame(self) -> tuple[
+        str,
+        Any,
+    ]:
+        control = FormattedTextControl(
+            text=self.render,
+            focusable=True,
+        )
+
+        window = Window(
+            content=control,
+            wrap_lines=False,
+            always_hide_cursor=True,
+        )
+
+        root = HSplit(
+            [
+                window,
+            ]
+        )
+
+        kb = KeyBindings()
+
+        @kb.add("up")
+        @kb.add("k")
+        def _up(event) -> None:
+            items = current_screen_items(
+                self.screen
+            )
+
+            if items:
+                self.screen.index = (
+                    self.screen.index
+                    - 1
+                ) % len(items)
+
+            event.app.invalidate()
+
+        @kb.add("down")
+        @kb.add("j")
+        def _down(event) -> None:
+            items = current_screen_items(
+                self.screen
+            )
+
+            if items:
+                self.screen.index = (
+                    self.screen.index
+                    + 1
+                ) % len(items)
+
+            event.app.invalidate()
+
+        @kb.add("space")
+        def _space(event) -> None:
+            items = current_screen_items(
+                self.screen
+            )
+
+            if not items:
                 return
 
-    def screen_blueprints(self) -> None:
-        while True:
-            result = self.cloud.run("blueprint.list", actor=self.actor, category=None, tag=None)
-            if not result.ok: self.show_result(result); return
-            blueprints = result.result.get("blueprints", [])
-            if not blueprints: self.message(["No Blueprints registered."], title="Blueprints"); return
-            items = [(b.get("name", b.get("id", "?")), b.get("description", "")) for b in blueprints]
-            choice = self.choose("Blueprints", items)
-            if choice is None: return
-            self.screen_blueprint_detail(blueprints[choice])
-
-    def screen_blueprint_detail(self, blueprint: dict[str, Any]) -> None:
-        blueprint_id = blueprint.get("id", blueprint.get("name"))
-        while True:
-            items = [("Show", "steps and inputs"), ("Apply", "destructive — runs it against a project")]
-            choice = self.choose(f"Blueprint: {blueprint_id}", items)
-            if choice is None: return
-            if choice == 0:
-                self.show_result(self.run_action("blueprint.show", blueprint=blueprint_id, version=None))
-                continue
-            project = self.read_line("Project name")
-            if project is None: continue
-            self.show_result(self.run_action("blueprint.apply", blueprint=blueprint_id, version=None, project=project, inputs={}))
-
-    def screen_grants(self) -> None:
-        result = self.cloud.run("grant.list", actor=self.actor, subject=None, include_expired=False)
-        if not result.ok: self.show_result(result); return
-        grants = result.result.get("grants", [])
-        if not grants: self.message(["No active Grants."], title="Grants"); return
-        items = [(g.get("id", "?"), f"{g.get('subject','?')} → {', '.join(g.get('actions', ()))}") for g in grants]
-        choice = self.choose("Grants", items)
-        if choice is not None: self.message(_format_lines(grants[choice]), title=grants[choice].get("id", "grant"))
-
-    def screen_search(self) -> None:
-        query = self.read_line("Search")
-        if not query: return
-        result = self.cloud.run("search.query", actor=self.actor, query=query, kinds=None, limit=25)
-        self.show_result(result, title=f'search: "{query}"')
-
-    def screen_state(self) -> None:
-        while True:
-            result = self.cloud.run("state.show", actor=self.actor)
-            current = result.result.get("current", "?") if result.ok else "?"
-            items = [("normal", "default"), ("incident", "elevated caution"), ("lockdown", "block non-essential actions")]
-            choice = self.choose(f"System state (current: {current})", items)
-            if choice is None: return
-            name = items[choice][0]
-            if name == current: continue
-            reason = self.read_line("Reason", default="")
-            if reason is None: continue
-            self.show_result(self.run_action("state.set", name=name, reason=reason, changed_by=self.actor))
-
-    def screen_plugins(self) -> None:
-        names = sorted(self.cloud.plugin_manager.metadata)
-        if not names: self.message(["No plugins loaded."], title="Plugins"); return
-        items = [(name, "") for name in names]
-        choice = self.choose("Plugins", items)
-        if choice is not None:
-            self.message(_format_lines(self.cloud.plugin_manager.inspect(names[choice])), title=names[choice])
-
-    def screen_palette(self) -> None:
-        actions = sorted(self.cloud.actions.list(), key=lambda a: a.name)
-        items = [(a.name, a.description) for a in actions]
-        choice = self.choose("Command palette", items, footer="type to filter by name/description   enter run/inspect   esc back")
-        if choice is None: return
-        action = actions[choice]
-        required = list(action.schema.get("required", ()))
-        if not required:
-            self.show_result(self.run_action(action.name))
-            return
-        lines = [action.description, "", f"Requires: {', '.join(required)}", "", "Run this from a shell instead:", f"  apx run {action.name} --input '{{\"...\"}}'"]
-        self.message(lines, title=action.name)
-
-
-def _format_lines(value: Any, indent: int = 0) -> list[str]:
-    pad = "  " * indent
-    lines: list[str] = []
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if isinstance(item, (dict, list)) and item:
-                lines.append(f"{pad}{key}:")
-                lines.extend(_format_lines(item, indent + 1))
-            else:
-                lines.append(f"{pad}{key}: {item}")
-    elif isinstance(value, list):
-        for item in value:
-            if isinstance(item, (dict, list)):
-                lines.extend(_format_lines(item, indent))
-                lines.append("")
-            else:
-                lines.append(f"{pad}- {item}")
-    else:
-        lines.append(f"{pad}{value}")
-    return lines or [json.dumps(value)]
-
-
-def first_run(config_path: "Path") -> dict[str, Any] | None:
-    """Fresh machine, no config yet: the setup wizard that has to exist before the
-    rest of the TUI can mean anything. Running bare `apx` on a machine that has
-    never been configured used to print `configuration not found` and exit 1 --
-    a dead end that made "install it and run it" untrue on every new host.
-
-    Returns the `setup.initialize` result on success, or None if the human backed
-    out (Esc/no), which the caller treats as "quit cleanly", not as an error.
-    """
-    from .setup import initialize
-
-    outcome: dict[str, Any] | None = None
-
-    def _wizard(stdscr):
-        nonlocal outcome
-        ui = TUI(stdscr, None, "human:local")
-        ui.message(
-            [
-                "No configuration on this machine yet.",
-                "",
-                "apx describes the machines, services, and projects you",
-                "want it to act on. This creates a minimal config for THIS",
-                "machine -- nothing is contacted, nothing is sent anywhere.",
-                "",
-                f"It will be written to: {config_path}",
-            ],
-            title="Welcome to apx",
-        )
-        if not ui.confirm(f"Create {config_path.name} now?"):
-            return
-        # Each SSH target is verified by setup.initialize() before it is written,
-        # so a host that cannot actually be reached from HERE is reported as an
-        # error instead of being silently baked into the config -- the exact
-        # failure mode that made copied configs look configured but broken.
-        ssh_hosts: list[str] = []
-        while True:
-            answer = ui.read_line("Add another machine over SSH? (name=ssh-target, blank when done)")
-            if answer is None or not answer.strip():
-                break
-            ssh_hosts.append(answer.strip())
-        try:
-            outcome = initialize(config_path, ssh_hosts=ssh_hosts, interactive=False)
-        except Exception as error:
-            ui.message([str(error)], title="Setup failed")
-            return
-        local = outcome["local"]
-        lines = [
-            f"Wrote {outcome['config']}",
-            "",
-            f"This machine: {local['hostname']} ({local['os']}/{local['architecture']})",
-            f"Detected capabilities: {', '.join(local['capabilities']) or 'none'}",
-        ]
-        if outcome["ssh_hosts"]:
-            lines += ["", "Reachable over SSH:"] + [f"  {h['name']} -> {h['target']}" for h in outcome["ssh_hosts"]]
-        if outcome["errors"]:
-            lines += ["", "Not added (unreachable from here):"] + [
-                f"  {e.get('host')}: {e['error']}" for e in outcome["errors"]
+            item = items[
+                self.screen.index
             ]
-        lines += ["", "Next: add API keys under Credentials, or run apx --doctor."]
-        ui.message(lines, title="apx is set up")
 
-    try:
-        curses.wrapper(_wizard)
-    except KeyboardInterrupt:
-        return None
-    except Quit:
-        return None
-    return outcome
+            if (
+                item.key
+                in self.screen.multi
+            ):
+                self.screen.multi.remove(
+                    item.key
+                )
+            else:
+                self.screen.multi.add(
+                    item.key
+                )
+
+            event.app.invalidate()
+
+        @kb.add("enter")
+        def _enter(event) -> None:
+            items = current_screen_items(
+                self.screen
+            )
+
+            if not items:
+                return
+
+            item = items[
+                self.screen.index
+            ]
+
+            event.app.exit(
+                result=(
+                    "enter",
+                    item,
+                )
+            )
+
+        @kb.add("escape")
+        @kb.add("left")
+        @kb.add("backspace")
+        def _back(event) -> None:
+            event.app.exit(
+                result=(
+                    "back",
+                    None,
+                )
+            )
+
+        @kb.add("r")
+        def _refresh(event) -> None:
+            event.app.exit(
+                result=(
+                    "refresh",
+                    None,
+                )
+            )
+
+        @kb.add("q")
+        def _quit(event) -> None:
+            event.app.exit(
+                result=(
+                    "quit",
+                    None,
+                )
+            )
+
+        @kb.add("c-c")
+        def _ctrl_c(event) -> None:
+            if len(
+                self.stack
+            ) > 1:
+                event.app.exit(
+                    result=(
+                        "back",
+                        None,
+                    )
+                )
+            else:
+                event.app.exit(
+                    result=(
+                        "quit",
+                        None,
+                    )
+                )
+
+        application = Application(
+            layout=Layout(
+                root,
+                focused_element=window,
+            ),
+            key_bindings=kb,
+            style=STYLE,
+            full_screen=True,
+            mouse_support=False,
+        )
+
+        result = application.run()
+
+        return result or (
+            "quit",
+            None,
+        )
+
+    def push(
+        self,
+        key: str,
+        title: str,
+        *,
+        context: dict[str, Any]
+        | None = None,
+        multi: set[str]
+        | None = None,
+    ) -> None:
+        self.stack.append(
+            Screen(
+                key,
+                title,
+                context=context or {},
+                multi=set(
+                    multi or set()
+                ),
+            )
+        )
+
+    def back(self) -> None:
+        if len(
+            self.stack
+        ) > 1:
+            self.stack.pop()
+        else:
+            self.quit = True
+
+    def choose_links(
+        self,
+        *,
+        owner_type: str,
+        owner: str,
+        link_type: str,
+    ) -> None:
+        links = links_data()
+
+        record = (
+            links
+            .setdefault(
+                owner_type,
+                {},
+            )
+            .setdefault(
+                owner,
+                {},
+            )
+        )
+
+        selected = set(
+            record.get(
+                link_type,
+                [],
+            )
+        )
+
+        if link_type == "channels":
+            options = list(
+                channels_data().keys()
+            )
+
+        elif link_type == "projects":
+            options = [
+                str(path)
+                for path in projects()
+            ]
+
+        elif link_type == "agents":
+            options = [
+                (
+                    f"{record['machine']}:"
+                    f"{record['agent']}"
+                )
+                for record in agent_records()
+                if record.get(
+                    "installed"
+                )
+            ]
+
+        else:
+            options = []
+
+        self.push(
+            "select",
+            f"Select {link_type.title()}",
+            context={
+                "owner_type": (
+                    owner_type
+                ),
+                "owner": owner,
+                "link_type": (
+                    link_type
+                ),
+                "options": options,
+            },
+            multi=selected,
+        )
+
+    def save_select(self) -> None:
+        screen = self.screen
+
+        owner_type = screen.context[
+            "owner_type"
+        ]
+        owner = screen.context[
+            "owner"
+        ]
+        link_type = screen.context[
+            "link_type"
+        ]
+
+        links = links_data()
+
+        record = (
+            links
+            .setdefault(
+                owner_type,
+                {},
+            )
+            .setdefault(
+                owner,
+                {},
+            )
+        )
+
+        record[
+            link_type
+        ] = sorted(
+            screen.multi
+        )
+
+        save_links(
+            links
+        )
+
+        self.back()
+
+    def open_agent_session(
+        self,
+        machine: str,
+        agent: str,
+    ) -> None:
+        config = (
+            network_cached()
+            .get(
+                "machines",
+                {},
+            )
+            .get(
+                machine,
+                {},
+            )
+        )
+
+        target = config.get(
+            "target"
+        )
+
+        terminal_dir = (
+            SHARE / "terminal"
+        )
+
+        terminal_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        command_file = (
+            terminal_dir
+            / "agent-session.command"
+        )
+
+        if machine == "mbp":
+            command = (
+                f"exec {shlex.quote(agent)}"
+            )
+        else:
+            command = (
+                "exec ssh -t "
+                + shlex.quote(
+                    str(target)
+                )
+                + " "
+                + shlex.quote(
+                    f"exec {agent}"
+                )
+            )
+
+        command_file.write_text(
+            "#!/bin/bash\n"
+            "clear\n"
+            + command
+            + "\n"
+        )
+
+        os.chmod(
+            command_file,
+            0o700,
+        )
+
+        subprocess.Popen(
+            [
+                "open",
+                "-a",
+                "Terminal",
+                str(
+                    command_file
+                ),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def standing_toggle(
+        self,
+        machine: str,
+        agent: str,
+    ) -> None:
+        identifier = (
+            f"{machine}:{agent}"
+        )
+
+        value = standing_data()
+
+        record = value.setdefault(
+            identifier,
+            {},
+        )
+
+        record["standing"] = not bool(
+            record.get(
+                "standing",
+                False,
+            )
+        )
+
+        save_standing(
+            value
+        )
+
+        print()
+        print(
+            f"{identifier}: "
+            + (
+                "standing"
+                if record["standing"]
+                else "normal"
+            )
+        )
+
+        pause()
+
+    def standing_stop(
+        self,
+        machine: str,
+        agent: str,
+    ) -> None:
+        command = [
+            "tmux",
+            "kill-session",
+            "-t",
+            f"apx-{agent}",
+        ]
+
+        try:
+            run_remote(
+                machine,
+                command,
+            )
+        except Exception as exc:
+            print(exc)
+
+        pause()
+
+    def standing_attach(
+        self,
+        machine: str,
+        agent: str,
+    ) -> None:
+        terminal_dir = (
+            SHARE / "terminal"
+        )
+
+        terminal_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        path = (
+            terminal_dir
+            / "standing-agent.command"
+        )
+
+        network = network_cached()
+
+        target = (
+            network
+            .get(
+                "machines",
+                {},
+            )
+            .get(
+                machine,
+                {},
+            )
+            .get(
+                "target"
+            )
+        )
+
+        if machine == "mbp":
+            command = (
+                f"exec tmux attach -t "
+                f"apx-{agent}"
+            )
+        else:
+            command = (
+                "exec ssh -t "
+                + shlex.quote(
+                    str(target)
+                )
+                + " "
+                + shlex.quote(
+                    f"tmux attach -t "
+                    f"apx-{agent}"
+                )
+            )
+
+        path.write_text(
+            "#!/bin/bash\n"
+            "clear\n"
+            + command
+            + "\n"
+        )
+
+        os.chmod(
+            path,
+            0o700,
+        )
+
+        subprocess.Popen(
+            [
+                "open",
+                "-a",
+                "Terminal",
+                str(path),
+            ]
+        )
+
+    def handle_enter(
+        self,
+        item: Item,
+    ) -> None:
+        screen = self.screen
+
+        if screen.key == "select":
+            if self.handle_select_channel_purposes():
+                return
+            self.save_select()
+            return
+
+        if screen.key == "main":
+            titles = {
+                "computers": "Computers",
+                "agents": "AI Agents",
+                "credentials": "Passwords & API Keys",
+                "plugins": "Plugins & Services",
+                "channels": "Channels",
+                "projects": "Projects",
+                "voice": "Voice Agent",
+                "network": "Network",
+                "system": "System",
+            }
+
+            self.push(
+                item.key,
+                titles.get(
+                    item.key,
+                    item.label,
+                ),
+            )
+            return
+
+        if screen.key == "computers":
+            self.push(
+                "computer",
+                item.label,
+                context={
+                    "machine": (
+                        item.data[
+                            "machine"
+                        ]
+                    )
+                },
+            )
+            return
+
+        if screen.key == "computer":
+            machine = screen.context[
+                "machine"
+            ]
+
+            network = network_cached()
+
+            machine_info = (
+                network
+                .get(
+                    "machines",
+                    {},
+                )
+                .get(
+                    machine,
+                    {},
+                )
+            )
+
+            if item.key == "agents":
+                self.push(
+                    "agents",
+                    "AI Agents",
+                )
+
+            elif item.key == "shell":
+                target = machine_info.get(
+                    "target"
+                )
+
+                if machine == "mbp":
+                    os.system(
+                        "open -a Terminal"
+                    )
+                else:
+                    os.system(
+                        "open -a Terminal "
+                        + shlex.quote(
+                            str(
+                                SHARE
+                                / "terminal"
+                                / "remote-shell.command"
+                            )
+                        )
+                    )
+
+                    path = (
+                        SHARE
+                        / "terminal"
+                        / "remote-shell.command"
+                    )
+
+                    path.parent.mkdir(
+                        parents=True,
+                        exist_ok=True,
+                    )
+
+                    path.write_text(
+                        "#!/bin/bash\n"
+                        f"exec ssh -t "
+                        f"{shlex.quote(str(target))}\n"
+                    )
+
+                    os.chmod(
+                        path,
+                        0o700,
+                    )
+
+                    subprocess.Popen(
+                        [
+                            "open",
+                            "-a",
+                            "Terminal",
+                            str(path),
+                        ]
+                    )
+
+            elif item.key == "doctor":
+                if machine == "mbp":
+                    native(
+                        "doctor"
+                    )
+                else:
+                    run_remote(
+                        machine,
+                        [
+                            "apx",
+                            "doctor",
+                        ],
+                        tty=True,
+                    )
+                pause()
+
+            elif item.key == "version":
+                if machine == "mbp":
+                    native(
+                        "--version"
+                    )
+                else:
+                    run_remote(
+                        machine,
+                        [
+                            "apx",
+                            "--version",
+                        ],
+                    )
+                pause()
+
+            elif item.key == "refresh":
+                value = network_refresh()
+                print(
+                    json.dumps(
+                        value,
+                        indent=2,
+                    )
+                )
+                pause()
+
+            return
+
+        if screen.key == "agents":
+            self.push(
+                "agent",
+                item.label,
+                context=item.data,
+            )
+            return
+
+        if screen.key == "agent":
+            machine = screen.context[
+                "machine"
+            ]
+            agent = screen.context[
+                "agent"
+            ]
+
+            identifier = (
+                f"{machine}:{agent}"
+            )
+
+            if item.key == "start":
+                self.open_agent_session(
+                    machine,
+                    agent,
+                )
+
+            elif item.key == "standing":
+                self.standing_toggle(
+                    machine,
+                    agent,
+                )
+
+            elif item.key == "attach":
+                self.standing_attach(
+                    machine,
+                    agent,
+                )
+
+            elif item.key == "stop":
+                self.standing_stop(
+                    machine,
+                    agent,
+                )
+
+            elif item.key == "project":
+                self.choose_links(
+                    owner_type="agents",
+                    owner=identifier,
+                    link_type="projects",
+                )
+
+            elif item.key == "channels":
+                self.choose_links(
+                    owner_type="agents",
+                    owner=identifier,
+                    link_type="channels",
+                )
+
+            elif item.key == "refresh":
+                value = network_refresh()
+                print(
+                    json.dumps(
+                        value,
+                        indent=2,
+                    )
+                )
+                pause()
+
+            return
+
+        if screen.key == "credentials":
+            if item.key == "__add__":
+                identifier = input(
+                    "Credential name: "
+                ).strip()
+
+                if identifier:
+                    native(
+                        "secret",
+                        "set",
+                        identifier,
+                    )
+
+                    links = links_data()
+
+                    links[
+                        "credentials"
+                    ].setdefault(
+                        identifier,
+                        {},
+                    )
+
+                    save_links(
+                        links
+                    )
+
+                return
+
+            self.push(
+                "credential",
+                item.label,
+                context=item.data,
+            )
+            return
+
+        if screen.key == "credential":
+            identifier = screen.context[
+                "credential"
+            ]
+
+            if item.key == "set":
+                native(
+                    "secret",
+                    "set",
+                    identifier,
+                )
+                pause()
+
+            elif item.key == "reveal":
+                native(
+                    "secret",
+                    "reveal",
+                    identifier,
+                )
+                pause()
+
+            elif item.key == "remove":
+                print(
+                    f"Revoking {identifier}..."
+                )
+
+                native(
+                    "credential",
+                    "revoke",
+                    identifier,
+                )
+
+                links = links_data()
+
+                links[
+                    "credentials"
+                ].pop(
+                    identifier,
+                    None,
+                )
+
+                save_links(
+                    links
+                )
+
+                pause()
+
+            elif item.key in (
+                "agents",
+                "projects",
+                "channels",
+            ):
+                self.choose_links(
+                    owner_type="credentials",
+                    owner=identifier,
+                    link_type=item.key,
+                )
+
+            return
+
+        if screen.key == "plugins":
+            self.push(
+                "plugin",
+                item.label,
+                context=item.data,
+            )
+            return
+
+        if screen.key == "plugin":
+            plugin = screen.context[
+                "plugin"
+            ]
+
+            if plugin == "porkbun":
+                if item.key == "domains":
+                    try:
+                        domains = (
+                            porkbun_domains()
+                        )
+
+                        table = Table(
+                            title="Porkbun Domains"
+                        )
+
+                        table.add_column(
+                            "Domain"
+                        )
+                        table.add_column(
+                            "Status"
+                        )
+                        table.add_column(
+                            "Expires"
+                        )
+
+                        for domain in domains:
+                            if isinstance(
+                                domain,
+                                dict,
+                            ):
+                                table.add_row(
+                                    str(
+                                        domain.get(
+                                            "domain",
+                                            domain.get(
+                                                "name",
+                                                "",
+                                            ),
+                                        )
+                                    ),
+                                    str(
+                                        domain.get(
+                                            "status",
+                                            "",
+                                        )
+                                    ),
+                                    str(
+                                        domain.get(
+                                            "expireDate",
+                                            domain.get(
+                                                "expiration",
+                                                "",
+                                            ),
+                                        )
+                                    ),
+                                )
+                            else:
+                                table.add_row(
+                                    str(domain),
+                                    "",
+                                    "",
+                                )
+
+                        console.print(
+                            table
+                        )
+
+                    except Exception as exc:
+                        console.print(
+                            f"[bold]Porkbun error:[/bold] {exc}"
+                        )
+
+                    pause()
+
+                elif item.key == "api_key":
+                    native(
+                        "secret",
+                        "set",
+                        "porkbun_api_key",
+                    )
+                    pause()
+
+                elif item.key == "secret_key":
+                    native(
+                        "secret",
+                        "set",
+                        "porkbun_secret_key",
+                    )
+                    pause()
+
+                return
+
+            if plugin == "purelymail":
+                if item.key == "users":
+                    try:
+                        users = (
+                            purelymail_users()
+                        )
+
+                        table = Table(
+                            title="Purelymail Mailboxes"
+                        )
+
+                        table.add_column(
+                            "Email"
+                        )
+
+                        for user in users:
+                            table.add_row(
+                                user
+                            )
+
+                        console.print(
+                            table
+                        )
+
+                    except Exception as exc:
+                        console.print(
+                            f"[bold]Purelymail error:[/bold] {exc}"
+                        )
+
+                    pause()
+
+                elif item.key == "domains":
+                    try:
+                        value = (
+                            purelymail_domains()
+                        )
+
+                        console.print_json(
+                            data=value
+                        )
+                    except Exception as exc:
+                        console.print(
+                            f"[bold]Purelymail error:[/bold] {exc}"
+                        )
+
+                    pause()
+
+                elif item.key in (
+                    "create",
+                    "template",
+                ):
+                    template = ""
+
+                    if item.key == "template":
+                        print()
+                        print(
+                            "1  support"
+                        )
+                        print(
+                            "2  alerts"
+                        )
+                        print(
+                            "3  noreply"
+                        )
+                        print(
+                            "4  admin"
+                        )
+                        print(
+                            "5  hello"
+                        )
+                        print()
+
+                        choice = input(
+                            "Template: "
+                        ).strip()
+
+                        template = {
+                            "1": "support",
+                            "2": "alerts",
+                            "3": "noreply",
+                            "4": "admin",
+                            "5": "hello",
+                        }.get(
+                            choice,
+                            "",
+                        )
+
+                    local = (
+                        template
+                        or input(
+                            "Mailbox name: "
+                        ).strip()
+                    )
+
+                    domain = input(
+                        "Domain: "
+                    ).strip()
+
+                    password = getpass.getpass(
+                        "Mailbox password: "
+                    )
+
+                    if (
+                        local
+                        and domain
+                        and password
+                    ):
+                        try:
+                            result = (
+                                purelymail_create_user(
+                                    local_part=local,
+                                    domain=domain,
+                                    password=password,
+                                    send_welcome=True,
+                                )
+                            )
+
+                            console.print_json(
+                                data=result
+                            )
+                        except Exception as exc:
+                            console.print(
+                                f"[bold]Purelymail error:[/bold] {exc}"
+                            )
+
+                    pause()
+
+                elif item.key == "delete":
+                    email = input(
+                        "Mailbox to delete: "
+                    ).strip()
+
+                    confirm = input(
+                        f"Type DELETE {email}: "
+                    ).strip()
+
+                    if confirm == (
+                        f"DELETE {email}"
+                    ):
+                        try:
+                            result = (
+                                purelymail_delete_user(
+                                    email
+                                )
+                            )
+
+                            console.print_json(
+                                data=result
+                            )
+                        except Exception as exc:
+                            console.print(
+                                f"[bold]Purelymail error:[/bold] {exc}"
+                            )
+
+                    pause()
+
+                elif item.key == "credit":
+                    try:
+                        console.print_json(
+                            data=(
+                                purelymail_credit()
+                            )
+                        )
+                    except Exception as exc:
+                        console.print(
+                            f"[bold]Purelymail error:[/bold] {exc}"
+                        )
+
+                    pause()
+
+                elif item.key == "token":
+                    native(
+                        "secret",
+                        "set",
+                        "purelymail_credential",
+                    )
+                    pause()
+
+                return
+
+        if screen.key == "channels":
+            if item.key == "__add__":
+                name = input(
+                    "Channel name: "
+                ).strip()
+
+                if name:
+                    kind = (
+                        input(
+                            "Channel type: "
+                        ).strip()
+                        or name
+                    )
+
+                    value = (
+                        channels_data()
+                    )
+
+                    value[name] = {
+                        "type": kind,
+                        "enabled": True,
+                        "purposes": [],
+                    }
+
+                    save_channels(
+                        value
+                    )
+
+                return
+
+            self.push(
+                "channel",
+                item.label,
+                context=item.data,
+            )
+            return
+
+        if screen.key == "channel":
+            channel = screen.context[
+                "channel"
+            ]
+
+            value = channels_data()
+
+            record = value.setdefault(
+                channel,
+                {
+                    "type": channel,
+                    "enabled": False,
+                    "purposes": [],
+                },
+            )
+
+            if item.key == "enabled":
+                record["enabled"] = not bool(
+                    record.get(
+                        "enabled",
+                        False,
+                    )
+                )
+
+                save_channels(
+                    value
+                )
+
+            elif item.key == "purposes":
+                purposes = [
+                    "alerts",
+                    "approvals",
+                    "agent-replies",
+                    "voice-results",
+                    "status",
+                    "deployments",
+                    "security",
+                ]
+
+                self.push(
+                    "select",
+                    "Channel Uses",
+                    context={
+                        "owner_type": (
+                            "__channel__"
+                        ),
+                        "owner": channel,
+                        "link_type": (
+                            "purposes"
+                        ),
+                        "options": purposes,
+                    },
+                    multi=set(
+                        record.get(
+                            "purposes",
+                            [],
+                        )
+                    ),
+                )
+
+            elif item.key == "remove":
+                value.pop(
+                    channel,
+                    None,
+                )
+
+                save_channels(
+                    value
+                )
+
+                self.back()
+
+            return
+
+        if screen.key == "projects":
+            self.push(
+                "project",
+                item.label,
+                context=item.data,
+            )
+            return
+
+        if screen.key == "project":
+            project = screen.context[
+                "project"
+            ]
+
+            if item.key == "agents":
+                self.choose_links(
+                    owner_type="projects",
+                    owner=project,
+                    link_type="agents",
+                )
+
+            elif item.key == "channels":
+                self.choose_links(
+                    owner_type="projects",
+                    owner=project,
+                    link_type="channels",
+                )
+
+            elif item.key == "shell":
+                path = (
+                    SHARE
+                    / "terminal"
+                    / "project.command"
+                )
+
+                path.parent.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+
+                path.write_text(
+                    "#!/bin/bash\n"
+                    f"cd {shlex.quote(project)}\n"
+                    "exec $SHELL -l\n"
+                )
+
+                os.chmod(
+                    path,
+                    0o700,
+                )
+
+                subprocess.Popen(
+                    [
+                        "open",
+                        "-a",
+                        "Terminal",
+                        str(path),
+                    ]
+                )
+
+            return
+
+        if screen.key == "voice":
+            if item.key == "talk":
+                subprocess.call(
+                    [
+                        str(
+                            SHARE
+                            / "voice"
+                            / "run"
+                        ),
+                        "talk",
+                    ]
+                )
+
+            elif item.key == "wake":
+                subprocess.call(
+                    [
+                        str(
+                            SHARE
+                            / "voice"
+                            / "run"
+                        ),
+                        "mode",
+                        "wake-word",
+                    ]
+                )
+
+            elif item.key == "ptt":
+                subprocess.call(
+                    [
+                        str(
+                            SHARE
+                            / "voice"
+                            / "run"
+                        ),
+                        "mode",
+                        "push-to-talk",
+                    ]
+                )
+
+            elif item.key == "always":
+                subprocess.call(
+                    [
+                        str(
+                            SHARE
+                            / "voice"
+                            / "run"
+                        ),
+                        "mode",
+                        "always",
+                    ]
+                )
+
+            elif item.key == "stop":
+                subprocess.call(
+                    [
+                        str(
+                            SHARE
+                            / "voice"
+                            / "run"
+                        ),
+                        "stop",
+                    ]
+                )
+
+            elif item.key == "settings":
+                subprocess.call(
+                    [
+                        str(
+                            SHARE
+                            / "voice"
+                            / "run"
+                        ),
+                        "interactive",
+                    ]
+                )
+
+            return
+
+        if screen.key == "network":
+            if item.key == "refresh":
+                value = (
+                    network_refresh()
+                )
+
+                console.print_json(
+                    data=value
+                )
+                pause()
+
+            elif item.key == "matrix":
+                network = (
+                    network_cached()
+                )
+
+                table = Table(
+                    title="APX Agent Matrix"
+                )
+
+                table.add_column(
+                    "Computer"
+                )
+                table.add_column(
+                    "Online"
+                )
+                table.add_column(
+                    "Claude"
+                )
+                table.add_column(
+                    "Codex"
+                )
+
+                for machine, info in (
+                    network
+                    .get(
+                        "machines",
+                        {},
+                    )
+                    .items()
+                ):
+                    agents = info.get(
+                        "agents",
+                        {},
+                    )
+
+                    def state(
+                        agent: str,
+                    ) -> str:
+                        record = agents.get(
+                            agent,
+                            {},
+                        )
+
+                        if not info.get(
+                            "online"
+                        ):
+                            return "OFFLINE"
+
+                        if not record.get(
+                            "installed"
+                        ):
+                            return "MISSING"
+
+                        if record.get(
+                            "processes",
+                            0,
+                        ):
+                            return "RUNNING"
+
+                        return "READY"
+
+                    table.add_row(
+                        info.get(
+                            "name",
+                            machine,
+                        ),
+                        (
+                            "YES"
+                            if info.get(
+                                "online"
+                            )
+                            else "NO"
+                        ),
+                        state(
+                            "claude"
+                        ),
+                        state(
+                            "codex"
+                        ),
+                    )
+
+                console.print(
+                    table
+                )
+                pause()
+
+            elif item.key == "raw":
+                console.print_json(
+                    data=(
+                        network_cached()
+                    )
+                )
+                pause()
+
+            return
+
+        if screen.key == "system":
+            if item.key == "doctor":
+                native(
+                    "doctor"
+                )
+                pause()
+
+            elif item.key == "native":
+                native(
+                    "menu"
+                )
+
+            elif item.key == "update":
+                subprocess.call(
+                    [
+                        str(
+                            HOME
+                            / ".local/bin/apx"
+                        ),
+                        "update",
+                    ]
+                )
+                pause()
+
+            elif item.key == "push":
+                subprocess.call(
+                    [
+                        str(
+                            HOME
+                            / ".local/bin/apx"
+                        ),
+                        "push",
+                    ]
+                )
+                pause()
+
+    def handle_select_channel_purposes(
+        self,
+    ) -> bool:
+        screen = self.screen
+
+        if (
+            screen.key
+            != "select"
+            or screen.context.get(
+                "owner_type"
+            )
+            != "__channel__"
+        ):
+            return False
+
+        channel = screen.context[
+            "owner"
+        ]
+
+        value = channels_data()
+
+        record = value.setdefault(
+            channel,
+            {
+                "type": channel,
+                "enabled": True,
+                "purposes": [],
+            },
+        )
+
+        record["purposes"] = sorted(
+            screen.multi
+        )
+
+        save_channels(
+            value
+        )
+
+        self.back()
+        return True
+
+    def run(self) -> int:
+        while not self.quit:
+            action, payload = (
+                self.run_frame()
+            )
+
+            if action == "quit":
+                break
+
+            if action == "back":
+                self.back()
+                continue
+
+            if action == "refresh":
+                if self.screen.key in (
+                    "computers",
+                    "agents",
+                    "network",
+                ):
+                    print(
+                        "Refreshing APX network..."
+                    )
+
+                    network_refresh()
+
+                continue
+
+            if action == "enter":
+                if self.screen.key == "select":
+                    if (
+                        self.handle_select_channel_purposes()
+                    ):
+                        continue
+
+                self.handle_enter(
+                    payload
+                )
+
+        return 0
 
 
-def run(cloud: APX, actor: str, start_screen: str | None = None) -> int:
-    def _main(stdscr):
-        TUI(stdscr, cloud, actor).root(start_screen)
-    try:
-        curses.wrapper(_main)
-    except KeyboardInterrupt:
-        pass
-    except Quit:
-        pass
+def snapshot() -> int:
+    network = network_cached()
+
+    voice_status, voice_mode = (
+        voice_state()
+    )
+
+    machines = network.get(
+        "machines",
+        {},
+    )
+
+    print("APX")
+    print("===")
+    print()
+    print(
+        f"Computers       "
+        f"{sum(1 for m in machines.values() if m.get('online'))}"
+        f"/{len(machines)} online"
+    )
+    print(
+        "AI Agents       "
+        f"{sum(1 for a in agent_records() if a.get('installed'))} installed"
+    )
+    print(
+        "Voice Agent     "
+        f"{voice_status} • {voice_mode}"
+    )
+    print(
+        "Credentials     "
+        f"{len(credential_ids())}"
+    )
+    print(
+        "Channels        "
+        f"{len(channels_data())}"
+    )
+    print()
+
     return 0
+
+
+def main() -> int:
+    if "--snapshot" in sys.argv:
+        return snapshot()
+
+    return APXTUI().run()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -70,13 +70,20 @@ def transports_for(host: Host) -> list[Transport]:
     transports=[]
     for value in definitions:
         adapter=value.get("adapter",value.get("transport","ssh"))
-        candidate=Host(host.name,adapter,value.get("target"),(),host.groups,host.tags)
-        if adapter=="local": transports.append(LocalTransport(candidate))
+        candidate=Host(host.name,adapter,value.get("target"),(),host.groups,host.tags,host.roles,host.is_self)
+        # A `local` connection is only a connection on the machine it describes. On
+        # any other node it is someone else's entry in a shared topology, and
+        # running it here would answer questions about the wrong computer.
+        if adapter=="local":
+            if host.is_self: transports.append(LocalTransport(candidate))
         elif adapter in {"ssh","tailscale_ssh"}: transports.append(SSHTransport(candidate))
     return transports
 
 
 def transport_for(host: Host) -> Transport:
     candidates=transports_for(host)
-    if not candidates: raise TransportError(f"host {host.name!r} has no supported connections")
+    if not candidates:
+        if host.transport=="local" and not host.is_self:
+            raise TransportError(f"host {host.name!r} is declared local on another machine and has no connection reachable from here")
+        raise TransportError(f"host {host.name!r} has no supported connections")
     return candidates[0] if len(candidates)==1 else FallbackTransport(host,candidates)

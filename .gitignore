@@ -25,3 +25,31 @@ apx.toml
 *.state.json
 *.json.lock
 !apx.example.toml
+# Local/private APX state
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+# Python/build
+venv/
+.mypy_cache/
+.ruff_cache/
+# Local logs/transcripts/audit
+*.log
+*.jsonl
+audit.jsonl
+fleet.json
+Pasted*
+*transcript*
+20??-??-??-*-install-*.txt
+# Personal instance directories & external MCPs
+MCP/
+mcp-servers/
+desktop/
+# macOS
+# APX local runtime/state
+.local/
+

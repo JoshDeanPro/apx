@@ -1,29 +1,26 @@
 # APX Maintainers
 
-APX is at the Founder-Steward stage (see [GOVERNANCE.md](GOVERNANCE.md)).
-This file lists **roles**, not filled seats — most are currently unfilled
-because the project has one active steward and no separate maintainer
-team yet. Do not read a role listed here as a claim that a specific
-person other than the Steward currently holds it.
+APX is stewarded under the Founder-Steward model (see [GOVERNANCE.md](GOVERNANCE.md)).
 
-| Role | Scope | Currently |
+## Project Leadership
+
+- **Founder / Project Steward**: **Ethan Gegos** (Original author, sole steward and maintainer)
+- **Additional Contributors / Maintainers**: **None at this moment.** There are currently no other maintainers or active contributors.
+
+| Role | Scope | Status |
 |---|---|---|
-| Founder / Project Steward | Final authority over the official project — see [GOVERNANCE.md](GOVERNANCE.md) | The project's original author (see git history and [NOTICE](NOTICE)) |
-| Core Maintainer | Action Registry, Policy, transports, `axp.py` core types | Unfilled |
-| SDK Maintainer | Python SDK ergonomics (`apx.actions`, `apx.providers`, plugin API) | Unfilled |
-| Security Maintainer | [SECURITY.md](SECURITY.md) process, vulnerability triage | Unfilled |
-| Documentation Maintainer | openpower.one/apx, README, docs/ | Unfilled |
-| Provider/Conformance Maintainer | [CONFORMANCE.md](CONFORMANCE.md), reference provider, provider SDK | Unfilled |
+| Founder / Project Steward | Final authority over the official project and canonical repository | **Ethan Gegos** |
+| Core Framework | Action Registry, Policy, Transports, Deterministic Engine | Ethan Gegos |
+| Protocol & Architecture | Universal Capability Fabric, Providers, Specifications | Ethan Gegos |
+| Python SDK & CLI | `apx` CLI, TUI, Client, Dispatch | Ethan Gegos |
+| Documentation & Web | Protocol documentation and reference specs | Ethan Gegos |
 
-## Appointment and removal
+## Contributing & PR Approvals
 
-The Steward appoints maintainers and may scope their authority to a
-specific area (a row above). The Steward may remove maintainer status
-where required to protect the project — for cause (a security incident,
-a sustained pattern of decisions against project direction, inactivity),
-not arbitrarily and not as a way to silence disagreement about ordinary
-technical review.
+Community contributions, bug fixes, and integrations are welcome via GitHub Pull Requests. 
 
-As APX gains an active multi-maintainer community, expect this section
-to gain a real nomination/review process. It doesn't have one yet because
-there isn't yet a maintainer team to run it.
+**Branch Protection Policy:**
+- Contributions do **not** automatically merge to the `main` branch.
+- Every contribution requires review and explicit approval by the Project Steward (**Ethan Gegos**) before it can be merged into `main`.
+- No credit is given to AI models or automated agents (see [AI_POLICY.md](AI_POLICY.md)).
+

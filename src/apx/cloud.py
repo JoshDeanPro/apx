@@ -203,8 +203,8 @@ class APX:
     def _register_update_actions(self) -> None:
         obj=lambda properties,required=():{"type":"object","properties":properties,"required":list(required),"additionalProperties":False}
         self.actions.register(RegisteredAction("system.version","Report the running apx package version and git commit",self.system_version,obj({})))
-        self.actions.register(RegisteredAction("system.check_update","Check (read-only, fetches but never changes the working tree) whether the apx git checkout is behind its upstream branch",self.system_check_update,obj({})))
-        self.actions.register(RegisteredAction("system.update","Fast-forward the apx git checkout to upstream and reinstall only if dependencies changed -- refuses to run with uncommitted local changes",self.system_update,obj({"reinstall":{"type":"boolean"}}),False,False,confirmation="none",idempotent=True,risk="low_change"))
+        self.actions.register(RegisteredAction("system.check_update","Check, read-only, whether the APX software is behind: a development checkout is compared against its upstream branch, an installed runtime reports its configured update source",self.system_check_update,obj({})))
+        self.actions.register(RegisteredAction("system.update","Update the APX software, never the machine's local state: a development checkout fast-forwards (refusing to run with uncommitted changes), an installed runtime installs its configured source",self.system_update,obj({"reinstall":{"type":"boolean"}}),False,False,confirmation="none",idempotent=True,risk="low_change"))
 
     def system_version(self) -> dict[str,Any]:
         from .selfupdate import version_info
@@ -212,11 +212,11 @@ class APX:
 
     def system_check_update(self) -> dict[str,Any]:
         from .selfupdate import check_for_updates
-        return check_for_updates()
+        return check_for_updates(config=self.config)
 
     def system_update(self, reinstall: bool = True) -> dict[str,Any]:
         from .selfupdate import UpdateError, apply_update
-        try: return apply_update(reinstall=reinstall)
+        try: return apply_update(reinstall=reinstall,config=self.config)
         except UpdateError as error: raise ActionError(str(error)) from error
 
     def _register_fleet_actions(self) -> None:
