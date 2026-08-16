@@ -38,8 +38,9 @@ class Plugin:
             if not item: raise ActionError(f"unknown database {database!r}")
             try:
                 with socket.create_connection((item.host,item.port),timeout=max(1,min(timeout,10))): reachable=True
-            except OSError: reachable=False
+            except (OSError,ValueError,TypeError): reachable=False
             return {"database":database,"engine":item.engine,"endpoint":item.host,"port":item.port,"reachable":reachable,"authenticated":False}
+
         def version(database):
             item=get(database)
             if not item: raise ActionError(f"unknown database {database!r}")

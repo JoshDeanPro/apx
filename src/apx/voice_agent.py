@@ -442,20 +442,32 @@ def transcribe(samples) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def run_core(args: list[str], timeout: int = 30) -> str:
-    if not CORE_APX.exists():
-        return "APX runtime is unavailable."
+def _core_cmd() -> list[str]:
+    if CORE_APX.exists():
+        return [str(CORE_APX)]
+    import shutil
+    found = shutil.which("apx")
+    if found:
+        return [found]
+    return [sys.executable, "-m", "apx.cli"]
 
-    p = subprocess.run(
-        [str(CORE_APX), *args],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+
+def run_core(args: list[str], timeout: int = 30) -> str:
+    cmd = _core_cmd()
+    try:
+        p = subprocess.run(
+            [*cmd, *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception as error:
+        return f"APX command failed: {error}"
 
     value = p.stdout.strip()
+
 
     if not value:
         return (
