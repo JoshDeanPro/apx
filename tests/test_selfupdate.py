@@ -1,3 +1,4 @@
+import os
 import subprocess
 import tempfile
 import unittest
@@ -56,7 +57,7 @@ class SelfUpdateTests(unittest.TestCase):
         root = self._repo(); _make_repo(root)
         with self._patched_root(root):
             result = selfupdate.check_for_updates()
-        self.assertTrue(result["git_repo"])
+        self.assertEqual(result["kind"], "development")
         self.assertFalse(result["update_available"])
         self.assertIn("error", result)
 
@@ -97,6 +98,57 @@ class SelfUpdateTests(unittest.TestCase):
         with self._patched_root(root):
             with self.assertRaises(selfupdate.UpdateError):
                 selfupdate.apply_update()
+
+
+class InstalledRuntimeTests(unittest.TestCase):
+    """An installed runtime is not a checkout, and updating it must not depend on
+    any hosted service knowing it exists."""
+
+    def _installed(self):
+        return mock.patch.object(selfupdate, "_is_development_checkout", return_value=False)
+
+    def _no_source_in_environment(self):
+        environment = {k: v for k, v in os.environ.items() if k != "APX_UPDATE_SOURCE"}
+        return mock.patch.dict("os.environ", environment, clear=True)
+
+    def test_update_without_a_configured_source_says_so_instead_of_reaching_out(self):
+        with self._installed(), self._no_source_in_environment():
+            with self.assertRaises(selfupdate.UpdateError) as caught:
+                selfupdate.apply_update()
+        self.assertIn("no update source configured", str(caught.exception))
+
+    def test_check_reports_the_configured_source_and_never_fetches(self):
+        with self._installed():
+            result = selfupdate.check_for_updates(config={"update": {"source": "/srv/wheels/apx.whl"}})
+        self.assertEqual(result["kind"], "installed")
+        self.assertEqual(result["source"], "/srv/wheels/apx.whl")
+
+    def test_source_precedence_is_explicit_then_environment_then_config(self):
+        config = {"update": {"source": "from-config"}}
+        with mock.patch.dict("os.environ", {"APX_UPDATE_SOURCE": "from-environment"}):
+            self.assertEqual(selfupdate.update_source("from-flag", config), "from-flag")
+            self.assertEqual(selfupdate.update_source(None, config), "from-environment")
+        with self._no_source_in_environment():
+            self.assertEqual(selfupdate.update_source(None, config), "from-config")
+
+    def test_update_installs_the_configured_source_with_pip(self):
+        calls = []
+
+        def fake_run(argv, cwd=None, timeout=30):
+            calls.append(argv)
+            if "importlib.metadata" in " ".join(argv): return True, "9.9.9", ""
+            return True, "", ""
+
+        with self._installed(), mock.patch.object(selfupdate, "_run", fake_run):
+            result = selfupdate.apply_update(config={"update": {"source": "/srv/wheels/apx.whl"}})
+        self.assertEqual(result["kind"], "installed")
+        self.assertEqual(result["after"], "9.9.9")
+        self.assertIn(["--upgrade", "/srv/wheels/apx.whl"], [argv[-2:] for argv in calls])
+
+    def test_pushing_to_the_local_node_is_refused(self):
+        from apx.models import Host
+        with self.assertRaises(selfupdate.UpdateError):
+            selfupdate.push_to_host(Host("mac", "local", is_self=True))
 
 
 if __name__ == "__main__":

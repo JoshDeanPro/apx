@@ -7,8 +7,9 @@ actually works here — kept intentionally light for an early project.
 
 - Bug fixes
 - New core Actions, Resources, or transports
-- Providers and plugins (see [Build a plugin](https://openpower.one/apx/build-a-plugin)
-  and [Build an APX Server](https://openpower.one/apx/build-a-server))
+- Providers and plugins (see [Build a plugin](https://openpower.dev/apx/build-a-plugin)
+  and [Build an APX Server](https://openpower.dev/apx/build-a-server))
+
 - SDK improvements
 - Documentation
 - Tests
@@ -29,42 +30,31 @@ Commerce/compatibility profile, open an
 document, not a committee process — the point is to avoid a large PR
 landing on a design nobody agreed to yet.
 
-## Workflow
+## Workflow & Branch Protection
 
-1. Open an issue or AEP for anything non-trivial; skip this for small
-   fixes.
-2. Fork the repository, make your change.
-3. Add or update tests. `python -m pytest` should pass.
-4. Open a pull request describing what changed and why.
-5. A maintainer reviews for correctness, security, compatibility, and
-   fit with the project's direction (see [GOVERNANCE.md](GOVERNANCE.md)).
-
-Submitting a PR does not automatically make it part of official APX.
-Maintainers review every change; acceptance into the canonical project is
-a governance decision, not a merge-button formality.
+1. Fork the repository and create a descriptive feature branch.
+2. Implement your changes with clean, readable code.
+3. Add or update tests: `pytest` must pass completely.
+4. Submit a Pull Request describing your changes, motivation, and test coverage.
+5. **Steward Review & Approval**: The `main` branch is protected. Pull requests are never merged automatically. Every change must be reviewed and approved by the Project Steward (**Ethan Gegos**).
 
 ## What review actually checks
 
 - Does it work, with tests proving it?
 - Does it introduce a security or credential-handling issue?
 - Does it break backward compatibility without a documented reason?
-- Does it belong in APX Core, or is it better as a plugin/provider (see
-  the "would this still make sense for someone who never uses OpenPower"
-  test in the README)?
-- Is Action metadata (risk, confirmation, reversibility) honest? See
-  [CONFORMANCE.md](CONFORMANCE.md).
+- Does it belong in APX Core, or is it better as an independent plugin/provider?
+- Is Action metadata (risk, confirmation, reversibility) honest? See [CONFORMANCE.md](CONFORMANCE.md).
 
 ## Licensing of your contribution
 
-By submitting a contribution, you agree it's licensed under
-[MPL-2.0](LICENSE), same as the rest of the codebase, under the terms
-described in [CLA.md](CLA.md) (draft — see that file for its current
-status). You keep ownership of what you write.
+By submitting a contribution, you agree it is licensed under [MPL-2.0](LICENSE), same as the rest of the codebase. You keep ownership of what you write.
 
+## AI Policy & Credit
 
-Welcome — see [AI_POLICY.md](AI_POLICY.md). The human submitting the PR
-is responsible for what's in it either way.
+AI tools may be used by human developers to assist in writing code, but **no credit or authorship is given to AI models or tools**. The human submitting the PR is the contributor of record and is 100% responsible for the submission. See [AI_POLICY.md](AI_POLICY.md).
 
 ## Code of conduct
 
 See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+

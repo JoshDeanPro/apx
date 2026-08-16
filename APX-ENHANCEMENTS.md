@@ -20,7 +20,8 @@ specification. Most contributions don't need this — see below.
 - Small bug fixes
 - Ordinary plugin/provider Actions (your own `subscription.cancel` for
   your own service doesn't need project-wide sign-off — see
-  [Build a plugin](https://openpower.one/apx/build-a-plugin))
+  [Build a plugin](https://openpower.dev/apx/build-a-plugin))
+
 - Routine implementation work that doesn't change a public contract
 
 When in doubt, open an issue and ask before writing the AEP — it's faster

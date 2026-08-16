@@ -48,7 +48,8 @@ The Steward controls, or delegates control over:
 - security-critical changes
 - compatibility rules
 - official conformance designations (see [CONFORMANCE.md](CONFORMANCE.md))
-- official project infrastructure (openpower.one, package namespaces, etc.)
+- official project infrastructure (openpower.dev, package namespaces, etc.)
+
 
 This is **governance authority over the official project** — it is not
 ownership of contributors' independent work, and not a claim that the
@@ -107,11 +108,12 @@ it competes with an OpenPower feature.
 
 ## APX vs. OpenPower
 
-APX is open-source infrastructure. [OpenPower](https://openpower.one) is
+APX is open-source infrastructure. [OpenPower](https://openpower.dev) is
 an independently operated product/service built on APX — the flagship
 implementation, not a requirement. The MPL-2.0 license on APX does not
-obligate the project to provide openpower.one hosted services, accounts,
+obligate the project to provide openpower.dev hosted services, accounts,
 relays, registry access, databases, or support to every fork. See the
+
 [APX vs OpenPower](README.md#apx-vs-openpower) section of the README for
 the technical/architectural version of this boundary.
 

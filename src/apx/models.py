@@ -18,6 +18,13 @@ class Host:
     # actor-level roles (identity.ActorRegistry/[[actors]]) are enforced today. A host-scoped
     # policy dimension keyed on these is plausible future work, not implemented.
     roles: tuple[str, ...] = ()
+    # True when this entry describes the machine APX is currently running on. The
+    # fleet topology is meant to be the same on every node, so exactly one host in
+    # a loaded config is the self host and only that one may be reached over the
+    # `local` adapter -- see config.resolve_self_host(). Without this, a config
+    # copied from another machine executes that machine's commands here and
+    # reports the answers under its name.
+    is_self: bool = True
 
     def to_dict(self) -> dict[str, Any]: return asdict(self)
 
