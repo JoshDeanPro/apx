@@ -529,9 +529,9 @@ def current_screen_items(
                 "Direct APX computer routes",
             ),
             Item(
-                "system",
-                "System",
-                "Doctor, native APX, update",
+                "settings",
+                "Settings",
+                "Doctor, updates, auto-check, environment",
             ),
         ]
 
@@ -1147,23 +1147,46 @@ def current_screen_items(
             ),
         ]
 
-    if key == "system":
+    if key in ("settings", "system"):
+        from .settings import get_all_settings
+        st = get_all_settings()
+        auto_check_enabled = st.get("update", {}).get("auto_check", True)
+        update_stat = st.get("update", {}).get("status", {})
+        update_desc = (
+            f"Update Available ({update_stat.get('commits_behind', 0)} commits behind)"
+            if update_stat.get("update_available")
+            else "Up to date"
+        )
         return [
             Item(
                 "doctor",
                 "APX Doctor",
-            ),
-            Item(
-                "native",
-                "Native APX Menu",
+                "Diagnose nodes, credentials, and configuration",
             ),
             Item(
                 "update",
                 "Update APX",
+                f"{update_desc} • check and apply updates",
+            ),
+            Item(
+                "toggle_auto_update",
+                "Auto-Check for Updates",
+                f"{'Enabled' if auto_check_enabled else 'Disabled'} (checks on launch)",
+            ),
+            Item(
+                "show_settings",
+                "Show Settings & Paths",
+                "Display environment, runtime, and state paths",
+            ),
+            Item(
+                "native",
+                "Native APX Menu",
+                "Classic APX interactive menu",
             ),
             Item(
                 "push",
                 "Publish APX to VPS",
+                "Push wheel build to remote fleet",
             ),
         ]
 
@@ -2868,7 +2891,7 @@ class APXTUI:
 
             return
 
-        if screen.key == "system":
+        if screen.key in ("settings", "system"):
             if item.key == "doctor":
                 native(
                     "doctor"
@@ -2881,28 +2904,33 @@ class APXTUI:
                 )
 
             elif item.key == "update":
-                subprocess.call(
-                    [
-                        str(
-                            HOME
-                            / ".local/bin/apx"
-                        ),
-                        "update",
-                    ]
+                native(
+                    "settings",
+                    "update",
+                )
+                pause()
+
+            elif item.key == "toggle_auto_update":
+                from .settings import get_all_settings, set_setting
+                st = get_all_settings()
+                curr = st.get("update", {}).get("auto_check", True)
+                set_setting("settings.auto_update_check", "false" if curr else "true")
+
+            elif item.key == "show_settings":
+                native(
+                    "settings"
                 )
                 pause()
 
             elif item.key == "push":
-                subprocess.call(
-                    [
-                        str(
-                            HOME
-                            / ".local/bin/apx"
-                        ),
-                        "push",
-                    ]
+                native(
+                    "settings",
+                    "update",
+                    "push",
                 )
                 pause()
+
+            return
 
     def handle_select_channel_purposes(
         self,

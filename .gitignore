@@ -37,19 +37,32 @@ apx.toml
 venv/
 .mypy_cache/
 .ruff_cache/
-# Local logs/transcripts/audit
+# Local logs/transcripts/audit/artifacts
 *.log
 *.jsonl
 audit.jsonl
 fleet.json
 Pasted*
 *transcript*
+*chat*
+*artifact*
+*.claude*
+.claude*
+.gemini*
+.cursor*
+.vscode*
+.idea*
+.system_generated/
+chat_logs/
+transcripts/
+artifacts/
 20??-??-??-*-install-*.txt
 # Personal instance directories & external MCPs
 MCP/
 mcp-servers/
 desktop/
 # macOS
+.DS_Store
 # APX local runtime/state
 .local/
 

@@ -76,25 +76,51 @@ def version_info() -> dict[str, Any]:
     return info
 
 
-def update_source(explicit: str | None = None, config: dict | None = None) -> str | None:
-    """A wheel/sdist path, a directory, a URL, or a pip requirement -- whatever this
-    installation was told to update from. Never inferred from a hosted service."""
+CANONICAL_REPO_URL = "https://github.com/JoshDeanPro/apx.git"
+DEFAULT_UPDATE_SOURCE = "git+https://github.com/JoshDeanPro/apx.git"
+
+
+def update_source(explicit: str | None = None, config: dict | None = None, fallback: bool = False) -> str | None:
+    """A wheel/sdist path, a directory, a URL, or a pip requirement.
+    Defaults to the canonical GitHub repository when fallback is requested."""
     if explicit: return explicit
     from_environment = os.environ.get("APX_UPDATE_SOURCE")
     if from_environment: return from_environment
-    return ((config or {}).get("update") or {}).get("source")
+    configured = ((config or {}).get("update") or {}).get("source") or ((config or {}).get("settings") or {}).get("update_source")
+    if configured: return configured
+    return DEFAULT_UPDATE_SOURCE if fallback else None
 
 
 def check_for_updates(*, source: str | None = None, config: dict | None = None) -> dict[str, Any]:
     """Read-only. On a checkout this fetches (touching only remote-tracking refs,
-    never the working tree) and reports how far behind upstream we are."""
+    never the working tree) and reports how far behind upstream we are.
+    On an installed runtime it queries tags/releases from the canonical repo or configured source."""
     where = installation()
     if where["kind"] != "development":
-        configured = update_source(source, config)
-        return {"kind": "installed", "current": __version__, "source": configured,
+        configured = update_source(source, config, fallback=False)
+        if configured:
+            if ("github.com" in configured or configured.startswith("git+") or configured.endswith(".git")):
+                clean_url = configured.replace("git+", "")
+                ok, out, _ = _run(["git", "ls-remote", "--tags", clean_url], timeout=15)
+                if ok and out:
+                    tags = [line.split("refs/tags/")[-1].strip().replace("^{}", "") for line in out.splitlines() if "refs/tags/" in line]
+                    latest_tag = tags[-1] if tags else None
+                    latest_ver = latest_tag.lstrip("v") if latest_tag else None
+                    is_newer = latest_ver and latest_ver != __version__
+                    return {
+                        "kind": "installed",
+                        "current": __version__,
+                        "latest_release": latest_tag,
+                        "source": configured,
+                        "update_available": is_newer,
+                        "note": f"Run `apx update` or `apx settings update apply` to upgrade to {latest_tag}" if is_newer else "APX is up to date with repository releases",
+                    }
+            return {"kind": "installed", "current": __version__, "source": configured,
+                    "update_available": None,
+                    "note": "install the configured source to update"}
+        return {"kind": "installed", "current": __version__, "source": None,
                 "update_available": None,
-                "note": "install the configured source to update"
-                if configured else "no update source configured: set [update] source, $APX_UPDATE_SOURCE, or pass --from"}
+                "note": "no update source configured: set [update] source, $APX_UPDATE_SOURCE, or pass --from"}
     root = _repo_root()
     fetch_ok, _, fetch_err = _run(["git", "fetch", "--quiet"], root, timeout=60)
     if not fetch_ok: return {"kind": "development", "update_available": False, "error": fetch_err or "git fetch failed"}
@@ -106,6 +132,71 @@ def check_for_updates(*, source: str | None = None, config: dict | None = None) 
     behind = int(count) if count_ok and count.isdigit() else 0
     return {"kind": "development", "update_available": behind > 0, "commits_behind": behind,
             "current": head[:8], "upstream": upstream[:8]}
+
+
+def _update_cache_path() -> Path:
+    from .config import apx_home
+    cache_dir = apx_home()/"cache"
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return cache_dir/"update_check.json"
+
+
+def auto_check_updates(*, force: bool = False, ttl_seconds: int = 21600, source: str | None = None, config: dict | None = None) -> dict[str, Any]:
+    """Non-blocking cached update check for CLI launches.
+    Caches results for 6 hours by default so startup remains instantaneous."""
+    import json
+    import time
+    if os.environ.get("APX_NO_UPDATE_CHECK", "").lower() in ("1", "true", "yes", "on"):
+        return {"update_available": False, "disabled": True}
+    
+    settings_cfg = (config or {}).get("settings") or (config or {}).get("update") or {}
+    if settings_cfg.get("auto_check") is False or settings_cfg.get("auto_update_check") is False:
+        return {"update_available": False, "disabled": True}
+
+    cache_path = _update_cache_path()
+    now = time.time()
+    if not force and cache_path.exists():
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(cached, dict) and (now - cached.get("timestamp", 0)) < ttl_seconds:
+                return cached.get("result", {})
+        except Exception:
+            pass
+
+    try:
+        result = check_for_updates(source=source, config=config)
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({"timestamp": now, "result": result}), encoding="utf-8")
+        except Exception:
+            pass
+        return result
+    except Exception as error:
+        return {"update_available": False, "error": str(error)}
+
+
+def notify_if_update_available(config: dict | None = None, *, stream=sys.stderr) -> str | None:
+    """If an update is available, output a clean notification banner to stderr when interactive."""
+    try:
+        check = auto_check_updates(config=config)
+        if check.get("update_available"):
+            commits = check.get("commits_behind", 0)
+            target = check.get("upstream", "upstream")
+            if commits > 0:
+                notice = f"\n[APX] Update available: {commits} new commit{'s' if commits != 1 else ''} available ({target}). Run `apx update` or `apx settings update` to apply.\n"
+            else:
+                notice = "\n[APX] Update available. Run `apx update` or `apx settings update` to apply.\n"
+            if stream and hasattr(stream, "isatty") and stream.isatty():
+                stream.write(notice)
+                stream.flush()
+            return notice
+    except Exception:
+        pass
+    return None
+
 
 
 def _update_development(*, reinstall: bool) -> dict[str, Any]:
