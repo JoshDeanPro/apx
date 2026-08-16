@@ -62,9 +62,14 @@ def databases_from_config(values: list[dict[str,Any]],credentials) -> list[Datab
     databases=[]
     for item in values:
         if item.get("url_credential"):
-            value=credentials.resolve(item["url_credential"])
-            databases.append(parse_database_url(value,id=item["id"],credential=item["url_credential"],groups=item.get("groups",()),tags=item.get("tags",()),project=item.get("project")))
+            try:
+                value=credentials.resolve(item["url_credential"])
+                databases.append(parse_database_url(value,id=item["id"],credential=item["url_credential"],groups=item.get("groups",()),tags=item.get("tags",()),project=item.get("project")))
+            except Exception: pass
         else:
-            engine=item["engine"].lower()
-            databases.append(DatabaseResource(item["id"],engine,item["host"],int(item.get("port",DEFAULT_PORTS.get(engine,0))),item.get("database"),item.get("username"),item.get("credential"),item.get("tls_mode"),item.get("provider"),item.get("version"),item.get("project"),tuple(item.get("groups",())),tuple(item.get("tags",())),item.get("metadata",{})))
+            try:
+                engine=item.get("engine","").lower()
+                databases.append(DatabaseResource(item["id"],engine,item["host"],int(item.get("port",DEFAULT_PORTS.get(engine,0))),item.get("database"),item.get("username"),item.get("credential"),item.get("tls_mode"),item.get("provider"),item.get("version"),item.get("project"),tuple(item.get("groups",())),tuple(item.get("tags",())),item.get("metadata",{})))
+            except Exception: pass
     return databases
+

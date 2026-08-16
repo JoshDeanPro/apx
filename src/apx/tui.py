@@ -140,12 +140,21 @@ def pause() -> None:
         pass
 
 
+def _real_cmd() -> list[str]:
+    if REAL.exists():
+        return [str(REAL)]
+    found = shutil.which("apx")
+    if found:
+        return [found]
+    return [sys.executable, "-m", "apx.cli"]
+
+
 def native(
     *args: str,
 ) -> int:
     return subprocess.call(
         [
-            str(REAL),
+            *_real_cmd(),
             *args,
         ]
     )
@@ -156,7 +165,7 @@ def native_capture(
 ) -> str:
     p = subprocess.run(
         [
-            str(REAL),
+            *_real_cmd(),
             *args,
         ],
         stdout=subprocess.PIPE,
@@ -166,6 +175,7 @@ def native_capture(
     )
 
     return p.stdout.strip()
+
 
 
 def voice_state() -> tuple[str, str]:
