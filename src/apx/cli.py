@@ -76,6 +76,14 @@ def main(argv: list[str] | None = None) -> int:
     update.add_argument("hosts",nargs="*",help="for `push`: which Nodes to update (default: every Node that is not this machine)")
     update.add_argument("--from",dest="source",help="wheel, sdist, directory, URL or pip requirement to install (installed runtimes only)")
     update.add_argument("--no-reinstall",dest="reinstall",action="store_false",default=True)
+    settings_parser=sub.add_parser("settings",help="manage APX settings, health diagnostics (doctor), updates, and runtime options")
+    settings_parser.add_argument("verb",nargs="?",default="show",choices=["show","doctor","update","get","set","list"])
+    settings_parser.add_argument("key",nargs="?",help="setting key for get/set, or update action (check/apply/push) for `update`")
+    settings_parser.add_argument("value",nargs="?",help="setting value for set")
+    settings_parser.add_argument("extra_hosts",nargs="*",help="target nodes for push update")
+    settings_parser.add_argument("--json",action="store_true",help="output in JSON format")
+    settings_parser.add_argument("--from",dest="source",help="wheel, sdist, directory, URL or pip requirement to install")
+    settings_parser.add_argument("--no-reinstall",dest="reinstall",action="store_false",default=True)
     sub.add_parser("version",help="report the running apx version and git commit")
     config_parser=sub.add_parser("config",help="show where this installation keeps its configuration and state, or move it out of a source checkout")
     config_parser.add_argument("verb",nargs="?",default="show",choices=["show","migrate"])
@@ -180,6 +188,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--doctor",action="store_true",help="shortcut for `apx doctor`")
     parser.add_argument("--add-keys",action="store_true",help="shortcut: open the TUI directly on Credentials, to add an API key/token")
     args=parser.parse_args(argv)
+    if args.command != "mcp":
+        try:
+            from .selfupdate import notify_if_update_available
+            notify_if_update_available(stream=sys.stderr if sys.stderr.isatty() else None)
+        except Exception:
+            pass
     if args.doctor:
         from .doctor import diagnose, summarize
         result=diagnose(args.config); print(summarize(result)); return 0 if result["ok"] else 1
@@ -217,6 +231,27 @@ def main(argv: list[str] | None = None) -> int:
         if args.json: output(result)
         else: print(summarize(result))
         return 0 if result["ok"] else 1
+    if args.command=="settings":
+        from .settings import execute_settings_doctor, execute_settings_update, format_settings, get_all_settings, get_setting, set_setting
+        if args.verb=="doctor":
+            return execute_settings_doctor(args.config, json_output=args.json)
+        if args.verb=="update":
+            action = args.key or "check"
+            return execute_settings_update(verb=action, source=args.source, reinstall=args.reinstall, hosts=args.extra_hosts, config_path=args.config)
+        if args.verb=="get":
+            if not args.key: output({"ok":False,"error":"missing setting key for get"}); return 2
+            val = get_setting(args.key, args.config)
+            if args.json: output({args.key: val})
+            else: print(val if val is not None else "")
+            return 0
+        if args.verb=="set":
+            if not args.key or args.value is None: output({"ok":False,"error":"missing key or value for set"}); return 2
+            res = set_setting(args.key, args.value, args.config)
+            output(res); return 0
+        all_settings = get_all_settings(args.config)
+        if args.json or args.verb=="list": output(all_settings)
+        else: print(format_settings(all_settings))
+        return 0
     if args.command=="create":
         from .scaffold import create
         try: output(create(args.kind,args.name,args.output)); return 0
