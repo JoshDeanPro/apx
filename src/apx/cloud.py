@@ -263,7 +263,7 @@ class APX:
                 "timeout":{"type":"integer"},"idle_gap":{"type":"integer"},"status_command":s,"test_command":s},("name","host","repo")),
         ))
         self.actions.register(RegisteredAction(
-            "agent.setup","Stand up a new Standing Agent (the palis-autopilot pattern: a coding-agent CLI run to completion, one iteration at a time, forever, under systemd) on a configured Node. Writes config; never starts the loop unless start=true.",
+            "agent.setup","Stand up a new Standing Agent (the apx-autopilot pattern: a coding-agent CLI run to completion, one iteration at a time, forever, under systemd) on a configured Node. Writes config; never starts the loop unless start=true.",
             self.agent_setup,obj({"name":s,"host":s,"repo":s,"description":s,"project_description":s,"user":s,"runtime":s,"model":s,"effort":s,
                 "timeout":{"type":"integer"},"idle_gap":{"type":"integer"},"status_command":s,"test_command":s,
                 "force":{"type":"boolean"},"enable":{"type":"boolean"},"start":{"type":"boolean"}},("name","host","repo")),

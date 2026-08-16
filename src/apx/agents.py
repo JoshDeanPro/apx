@@ -1,17 +1,13 @@
 # SPDX-License-Identifier: MPL-2.0
-"""Standing Agents: the same pattern as `palis-autopilot.service` on the production
-VPS, generalized so `apx agent setup` can stand up a new one on any configured Node
-in one call instead of hand-writing a systemd unit, a loop script, and a prompt.
+"""Standing Agents: generalized continuous autonomous agent runner pattern,
+so `apx agent setup` can stand up a new one on any configured Node in one call
+instead of hand-writing a systemd unit, a loop script, and a prompt.
 
-What that service actually does, and what this module reproduces: a `claude`
-iteration runs to completion, one at a time, forever, under systemd. Around the
-invocation itself: a single writer (flock) so nothing else can edit the repository
-mid-iteration, real usage-limit-reset parsing (Claude Code reports a rate-limited
-iteration with an epoch reset time; this backs off until then instead of hammering
-a closed door), exponential backoff on ordinary failures, and log rotation so the
-iteration log directory never grows unbounded. None of that is invented here --
-it is the actual, running production recipe, with only the project-specific paths
-and prompt content made into parameters.
+What that service actually does: an agent iteration runs to completion,
+one at a time, forever, under systemd or launchd. Around the invocation itself:
+a single writer (flock) so nothing else can edit the repository mid-iteration,
+real usage-limit-reset parsing, exponential backoff on ordinary failures,
+and log rotation so the iteration log directory never grows unbounded.
 
 A Standing Agent is a systemd (or launchd) service like any other -- once set up,
 `service.start/stop/restart/status` (actions.py) already control it. This module
@@ -323,10 +319,7 @@ build, deploy, restart, and how to check the result actually took effect.
 
 # Configurable per coding-agent runtime: which binary to resolve, how to invoke it
 # for one non-interactive iteration, and how to detect a rate-limited iteration.
-# "claude" is the exact recipe from the real palis-autopilot.service invocation
-# (verified=True: this is running in production, not guessed at). "codex" is a
-# best-effort scaffold, not yet run in anger -- see its `invoke` comment. Adding
-# a new runtime means adding one more entry here; nothing else in this module
+# Adding a new runtime means adding one more entry here; nothing else in this module
 # needs to change.
 AGENT_RUNTIMES: dict[str, dict[str, Any]] = {
     "claude": {

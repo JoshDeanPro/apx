@@ -17,7 +17,7 @@ from .identity import ActorRegistry
 def scope_values(value: Any) -> tuple[str, ...]:
     """A scope dimension's allowed values, tolerant of a bare string.
 
-    `tuple("palisbot")` silently explodes a string into single characters, which
+    `tuple("runner")` silently explodes a string into single characters, which
     would make a rule that can never match instead of raising -- a scope dimension
     is always coerced to a tuple of whole values, never iterated character-by-character.
     """
