@@ -13,7 +13,6 @@ vulnerability.**
 
 Report privately. Until a dedicated security contact/address exists,
 report through a private channel to the project Steward (see
-[MAINTAINERS.md](MAINTAINERS.md)) rather than a public issue, PR, or
 discussion thread. Include:
 
 - what you found and why it's a security issue

@@ -69,12 +69,12 @@ async def test_lookup_requires_auth(client):
 
 @pytest.mark.asyncio
 async def test_lookup_shows_agent_name_to_authenticated_human(client, auth_header):
-    created = (await client.post("/api/v1/device/link", json={"agent_name": "AXP on ethan-mac"})).json()
+    created = (await client.post("/api/v1/device/link", json={"agent_name": "AXP on workstation"})).json()
 
     resp = await client.get(f"/api/v1/device/link/{created['user_code']}", headers=auth_header())
     assert resp.status_code == 200
     body = resp.json()
-    assert body["agent_name"] == "AXP on ethan-mac"
+    assert body["agent_name"] == "AXP on workstation"
     assert body["status"] == "pending"
 
 
@@ -89,7 +89,7 @@ async def test_full_approve_flow_issues_working_token(client, auth_header, monke
     monkeypatch.setenv("OPENPOWER_AXP_SHARED_SECRET", "device-flow-secret")
     get_settings.cache_clear()
 
-    created = (await client.post("/api/v1/device/link", json={"agent_name": "AXP on ethan-mac"})).json()
+    created = (await client.post("/api/v1/device/link", json={"agent_name": "AXP on workstation"})).json()
     device_code, user_code = created["device_code"], created["user_code"]
 
     # AXP polls: still pending.

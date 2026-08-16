@@ -7,7 +7,6 @@
 > this file is currently a binding legal agreement.** Treat it as a
 > statement of intent for how contributions are meant to work, pending
 > proper legal review. This distinction matters and is deliberate — see
-> [GOVERNANCE.md](GOVERNANCE.md) and [LICENSE](LICENSE) for what
 > *is* actually in force today (the MPL-2.0 license itself).
 
 ## The model, once finalized

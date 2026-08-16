@@ -37,12 +37,12 @@ class EnrollmentStoreTests(unittest.TestCase):
 
     def test_approve_deny_cancel(self):
         pending=self.store.request(machine_id="machine:mac",runtime="claude")
-        approved=self.store.approve(pending["id"],resolved_by="human:ethan")
+        approved=self.store.approve(pending["id"],resolved_by="human:owner")
         self.assertEqual(approved["status"],"approved"); self.assertIsNotNone(approved["resolved_at"])
         with self.assertRaises(EnrollmentError): self.store.deny(pending["id"])  # already resolved
 
         other=self.store.request(machine_id="machine:mac",runtime="claude")
-        denied=self.store.deny(other["id"],resolved_by="human:ethan")
+        denied=self.store.deny(other["id"],resolved_by="human:owner")
         self.assertEqual(denied["status"],"denied")
 
         third=self.store.request(machine_id="machine:mac",runtime="claude")
@@ -91,7 +91,7 @@ class EnrollmentActionsTests(unittest.TestCase):
         cloud=APX(config(Path(self.temp.name)),plugins=False)
         events=[]; cloud.events.subscribe("*",events.append,owner="test")
         request=cloud.run("identity.enrollment.request",machine_id="machine:mac",runtime="claude").result
-        cloud.run("identity.enrollment.approve",request_id=request["id"],approved_by="human:ethan")
+        cloud.run("identity.enrollment.approve",request_id=request["id"],approved_by="human:owner")
         names=[e.name for e in events]
         self.assertIn("identity.enrollment_requested",names)
         self.assertIn("identity.enrollment_approved",names)

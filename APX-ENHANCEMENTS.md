@@ -32,11 +32,9 @@ than guessing wrong in either direction.
 1. **Propose.** Anyone can open an AEP as a short document (a GitHub
    issue or PR is fine — no special template is required yet). Describe
    the problem, the proposed change, and what it breaks or doesn't.
-2. **Review.** Maintainers (see [MAINTAINERS.md](MAINTAINERS.md))
    discuss it in the open. Expect questions about security,
    compatibility, and whether it belongs in Core versus a plugin/provider.
 3. **Decide.** During the current Founder-Steward governance phase (see
-   [GOVERNANCE.md](GOVERNANCE.md)), the Steward holds final acceptance
    authority. That's expected to shift toward maintainer consensus as the
    maintainer team grows.
 4. **Implement.** An accepted AEP becomes a normal PR under

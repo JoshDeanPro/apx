@@ -64,7 +64,7 @@ async def test_heartbeat_registers_device_and_detected_agents(client, auth_heade
     resp = await client.post(
         "/api/v1/agent/heartbeat",
         json={
-            "device_name": "ethans-mac",
+            "device_name": "workstation",
             "device_type": "mac",
             "buddy_os_version": "0.1.0",
             "axp_version": "0.4.0",
@@ -79,7 +79,7 @@ async def test_heartbeat_registers_device_and_detected_agents(client, auth_heade
     # A second heartbeat for the same device name must update, not duplicate.
     resp2 = await client.post(
         "/api/v1/agent/heartbeat",
-        json={"device_name": "ethans-mac", "detected_agents": []},
+        json={"device_name": "workstation", "detected_agents": []},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp2.json()["device_id"] == body["device_id"]
@@ -111,7 +111,7 @@ async def test_full_command_dispatch_round_trip(client, auth_header, monkeypatch
     agent_headers = {"Authorization": f"Bearer {agent_token}"}
 
     hb = await client.post(
-        "/api/v1/agent/heartbeat", json={"device_name": "ethans-mac"}, headers=agent_headers
+        "/api/v1/agent/heartbeat", json={"device_name": "workstation"}, headers=agent_headers
     )
     device_id = hb.json()["device_id"]
 

@@ -79,7 +79,7 @@ class DeployTests(unittest.TestCase):
 
     def test_deploy_on_launchd_writes_plist_and_bootstraps_without_starting(self):
         host = Host("mac", "local")
-        rendered = render("demo", repo="/Users/ethan/demo", user="ethan", init_system="launchd")
+        rendered = render("demo", repo="/Users/example/demo", user="ethan", init_system="launchd")
         self.assertIn("<false/>", rendered["unit"])  # RunAtLoad=false, verified before any I/O
 
         class LaunchdTransport(FakeTransport):
@@ -100,7 +100,7 @@ class DeployTests(unittest.TestCase):
 
     def test_deploy_tolerates_already_bootstrapped_launchd_job(self):
         host = Host("mac", "local")
-        rendered = render("demo", repo="/Users/ethan/demo", user="ethan", init_system="launchd")
+        rendered = render("demo", repo="/Users/example/demo", user="ethan", init_system="launchd")
 
         class AlreadyBootstrappedTransport(FakeTransport):
             def run(self, argv, timeout=30, input_text=None):

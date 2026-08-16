@@ -286,34 +286,25 @@ APX operates completely independently. It imports nothing from OpenPower and req
 
 ---
 
-## 🛡️ Project Stewardship, AI Policy & Contributing
-
-### Leadership & Maintainers
-
-APX is stewarded under the **Founder-Steward** model:
-- **Founder & Project Steward**: **Ethan Gegos** (Original author and sole project steward).
-- **Current Contributors / Maintainers**: Ethan Gegos is the sole author and active maintainer at this time. There are no other maintainers or active contributors currently.
-
-### Strict Human Authorship & Zero AI Credit Policy
-
-- **No AI Attribution**: AI models, assistants, or LLMs are not authors, copyright holders, or contributors of record. No credit or co-authorship is given to AI tools in commit logs, notices, or release rosters.
-- **Human Responsibility**: Any human submitting a pull request is 100% responsible for the correctness, security, licensing, and behavior of their submission. See [`AI_POLICY.md`](AI_POLICY.md).
-
-### Contributing & Branch Protection
-
-We welcome community pull requests, bug fixes, custom providers, and plugins!
-
-1. Fork the repo and create your feature branch.
-2. Ensure all tests pass (`pytest`).
-3. Submit a Pull Request on GitHub.
-4. **Steward Review**: The `main` branch is protected. No pull requests are merged automatically. Every change requires manual review and approval by the Project Steward (**Ethan Gegos**).
-
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`GOVERNANCE.md`](GOVERNANCE.md) for full details.
-
 ---
 
-## 📄 License & Notice
+## Contributing
 
-APX is licensed under the **Mozilla Public License 2.0 (MPL-2.0)**. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) for details.
+APX is open source. Issues and pull requests are welcome.
 
-Copyright (c) 2026 Ethan Gegos.
+Run the test suite before submitting changes:
+
+```bash
+pytest
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development details.
+
+## Project
+
+APX was created by **JoshDeanPro** and is maintained as an open protocol and reference implementation.
+
+## License
+
+APX is licensed under the **Mozilla Public License 2.0 (MPL-2.0)**.
+See [LICENSE](LICENSE) and [NOTICE](NOTICE).

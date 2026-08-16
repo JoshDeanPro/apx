@@ -62,7 +62,6 @@ by a formal certification process:
 
 When a real process exists for claiming these, it will be technical
 (pass the conformance suite) rather than an approval/account
-requirement, consistent with [GOVERNANCE.md](GOVERNANCE.md)'s "no central
 Action censorship" principle.
 
 ## What conformance is not

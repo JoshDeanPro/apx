@@ -48,7 +48,7 @@ def get_all_settings(config_path: Path | None = None) -> dict[str, Any]:
         },
         "node": {
             "name": (doc.get("node") or {}).get("name"),
-            "default_actor": doc.get("default_actor", "human:ethan"),
+            "default_actor": doc.get("default_actor", "human:owner"),
         },
         "update": {
             "source": configured_source,

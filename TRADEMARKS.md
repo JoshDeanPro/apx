@@ -39,7 +39,6 @@ project:
 
 ## Official designations
 
-The canonical APX Project (see [GOVERNANCE.md](GOVERNANCE.md)) controls
 the meaning of, and who may use, these specific designations:
 
 - **Official APX**

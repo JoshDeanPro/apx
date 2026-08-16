@@ -53,7 +53,7 @@ class AuthContextTests(unittest.TestCase):
         self.assertEqual(decoded,context)
 
     def test_to_dict_never_needs_a_raw_secret_field(self):
-        context=AuthContext(principal_id="human:ethan",principal_type="human",authentication_method="openpower",issuer="openpower")
+        context=AuthContext(principal_id="human:owner",principal_type="human",authentication_method="openpower",issuer="openpower")
         self.assertNotIn("token",context.to_dict()); self.assertNotIn("password",context.to_dict())
 
 
@@ -66,8 +66,8 @@ class LocalAuthProviderTests(unittest.TestCase):
         self.assertEqual(context.issuer,"local")
 
     def test_authenticate_falls_back_to_registry_default_actor(self):
-        provider=LocalAuthProvider(ActorRegistry(default_actor="human:ethan"))
-        self.assertEqual(provider.authenticate({}).principal_id,"human:ethan")
+        provider=LocalAuthProvider(ActorRegistry(default_actor="human:owner"))
+        self.assertEqual(provider.authenticate({}).principal_id,"human:owner")
 
 
 class AuthManagerTests(unittest.TestCase):

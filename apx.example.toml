@@ -93,10 +93,10 @@ target = "host:workstation"
 # ---------------------------------------------------------------------------
 
 # The identity used when no --actor is given (CLI/Python/MCP).
-# default_actor = "human:ethan"
+# default_actor = "human:owner"
 
 # [[actors]]
-# id = "human:ethan"
+# id = "human:owner"
 # kind = "human"
 # roles = ["admin"]
 
