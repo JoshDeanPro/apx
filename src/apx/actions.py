@@ -314,6 +314,8 @@ class CoreActions:
         return {"host":host,"projects":json.loads(r.stdout)}
 
     def file_copy(self, source_host: str, source: str, destination_host: str, destination: str) -> dict[str, Any]:
+        if source.startswith("-") or destination.startswith("-"): raise ActionError("file paths must not start with '-'")
+        if "\x00" in source or "\x00" in destination: raise ActionError("invalid character in file path")
         src=self.host(source_host); dst=self.host(destination_host)
         def spec(host: Host,path: str) -> str: return path if host.transport=="local" else f"{host.target}:{path}"
         command=["scp","-3","-p",spec(src,source),spec(dst,destination)] if src.transport==dst.transport=="ssh" else ["scp","-p",spec(src,source),spec(dst,destination)]
@@ -324,6 +326,8 @@ class CoreActions:
         return {"source":{"host":source_host,"path":source},"destination":{"host":destination_host,"path":destination},"transport":"local" if command[0]=="cp" else "scp"}
 
     def file_sync(self, source_host: str, source: str, destination_host: str, destination: str, dry_run: bool = True) -> dict[str, Any]:
+        if source.startswith("-") or destination.startswith("-"): raise ActionError("file paths must not start with '-'")
+        if "\x00" in source or "\x00" in destination: raise ActionError("invalid character in file path")
         src=self.host(source_host); dst=self.host(destination_host)
         for item in (src,dst):
             if not inspect_host(item)["capabilities"]["rsync"]["available"]: raise ActionError(f"files.sync requires rsync; rsync is not installed on host {item.name}")
@@ -334,6 +338,7 @@ class CoreActions:
         except (ProcessError,ProcessTimeout) as error: raise ActionError(str(error)) from error
         if not r.ok: raise ActionError(r.stderr.strip() or "file sync failed")
         return {"dry_run":dry_run,"changes":r.stdout.splitlines()}
+
 
     def host_shutdown(self, host: str) -> dict[str, Any]:
         item=self.host(host); r=transport_for(item).run(["shutdown","-h","now"],timeout=10)

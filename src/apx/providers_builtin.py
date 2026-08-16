@@ -1,7 +1,7 @@
-from __future__ import annotations
-
 import json
+import shutil
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 import uuid
@@ -21,21 +21,27 @@ REAL_APX = (
 )
 
 
+def _apx_cmd() -> list[str]:
+    if REAL_APX.exists():
+        return [str(REAL_APX)]
+    found = shutil.which("apx")
+    if found:
+        return [found]
+    return [sys.executable, "-m", "apx.cli"]
+
+
 def _secret(identifier: str) -> str:
-    if not REAL_APX.exists():
-        raise RuntimeError(
-            "APX runtime is unavailable"
-        )
+    base_cmd = _apx_cmd()
 
     for command in (
         [
-            str(REAL_APX),
+            *base_cmd,
             "secret",
             "reveal",
             identifier,
         ],
         [
-            str(REAL_APX),
+            *base_cmd,
             "secret",
             "get",
             identifier,
@@ -101,6 +107,9 @@ def _json_request(
     headers: dict[str, str] | None = None,
     body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if not (url.startswith("https://") or url.startswith("http://127.0.0.1") or url.startswith("http://localhost")):
+        raise ValueError("network requests require verified HTTPS or localhost")
+
     data = None
 
     request_headers = {
@@ -129,7 +138,7 @@ def _json_request(
             request,
             timeout=25,
         ) as response:
-            raw = response.read().decode(
+            raw = response.read(10 * 1024 * 1024 + 1).decode(
                 errors="replace"
             )
 
@@ -145,6 +154,7 @@ def _json_request(
                 value = {
                     "raw": raw,
                 }
+
 
             if isinstance(value, dict):
                 value.setdefault(

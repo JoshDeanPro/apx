@@ -88,7 +88,22 @@ def make_handler(adapter: HTTPProviderAdapter, *, allowed_origins: tuple[str, ..
             self._respond(status, headers, payload)
 
         def do_POST(self) -> None:
-            length = int(self.headers.get("Content-Length", 0) or 0)
+            raw_len = self.headers.get("Content-Length", "0")
+            try:
+                length = int(raw_len or 0)
+            except ValueError:
+                self._respond(400, {"Content-Type": "application/apx+json"},
+                               {"error": {"code": "invalid_request", "message": "invalid Content-Length header"}})
+                return
+            if length < 0:
+                self._respond(400, {"Content-Type": "application/apx+json"},
+                               {"error": {"code": "invalid_request", "message": "negative Content-Length"}})
+                return
+            max_body = 10 * 1024 * 1024  # 10 MB limit
+            if length > max_body:
+                self._respond(413, {"Content-Type": "application/apx+json"},
+                               {"error": {"code": "payload_too_large", "message": f"request body exceeds limit of {max_body} bytes"}})
+                return
             raw = self.rfile.read(length) if length else b""
             try:
                 body = json.loads(raw) if raw else {}
@@ -98,6 +113,7 @@ def make_handler(adapter: HTTPProviderAdapter, *, allowed_origins: tuple[str, ..
                 return
             status, headers, payload = adapter.handle("POST", self.path, body)
             self._respond(status, headers, payload)
+
 
         def log_message(self, format: str, *args: Any) -> None:
             pass  # quiet by default -- apx's own Event log already records action.started/completed

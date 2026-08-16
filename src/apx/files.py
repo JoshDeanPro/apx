@@ -40,9 +40,17 @@ def atomic_write(path: str | Path, data: str | bytes, *, mode: int=0o600) -> Non
     with file_lock(target):
         descriptor,temporary=tempfile.mkstemp(prefix=f".{target.name}.",dir=target.parent)
         try:
-            os.fchmod(descriptor,mode)
+            try: os.fchmod(descriptor,mode)
+            except OSError: pass
             with os.fdopen(descriptor,"wb") as stream:
                 stream.write(payload); stream.flush(); os.fsync(stream.fileno())
             os.replace(temporary,target)
+        except Exception:
+            try: os.close(descriptor)
+            except OSError: pass
+            raise
         finally:
-            if os.path.exists(temporary): os.unlink(temporary)
+            if os.path.exists(temporary):
+                try: os.unlink(temporary)
+                except OSError: pass
+

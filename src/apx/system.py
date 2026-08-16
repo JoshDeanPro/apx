@@ -11,6 +11,9 @@ from .models import Host
 from .transports import transport_for, transports_for
 
 
+import re
+
+
 def connection_list(host: Host) -> dict[str,Any]:
     definitions=list(host.connections) or [{"adapter":host.transport,"target":host.target,"preferred":True}]
     return {"host":host.name,"connections":[{"id":value.get("id",f"{host.name}-{index+1}"),"adapter":value.get("adapter",value.get("transport","ssh")),"target":value.get("target"),"preferred":bool(value.get("preferred",index==0))} for index,value in enumerate(definitions)]}
@@ -33,8 +36,10 @@ def tailscale_status(host: Host) -> dict[str,Any]:
     if not info["capabilities"]["tailscale"]["available"]:
         return {"host":host.name,"installed":False,"connected":False,"peers":[]}
     transport=transport_for(host)
-    command=info["capabilities"]["tailscale"].get("command") or "tailscale"
+    raw_command=str(info["capabilities"]["tailscale"].get("command") or "tailscale")
+    command=raw_command if re.fullmatch(r"[/A-Za-z0-9_.-]+",raw_command) else "tailscale"
     version=transport.run([command,"version"],timeout=10)
+
     status=transport.run([command,"status","--json"],timeout=15)
     if not status.ok:
         return {"host":host.name,"installed":True,"connected":False,"version":version.stdout.splitlines()[0] if version.ok else None,"error":status.stderr.strip() or "status unavailable","peers":[]}
