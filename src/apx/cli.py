@@ -26,7 +26,7 @@ def result_exit(result) -> int:
     return 1
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     parser=argparse.ArgumentParser(prog="apx",description="Use your computers and services together.")
     parser.add_argument("--version",action="version",version=f"APX {__version__}")
     parser.add_argument("--config",help="TOML configuration path")
@@ -242,7 +242,7 @@ def main(argv: list[str] | None = None) -> int:
             return execute_settings_doctor(args.config, json_output=args.json)
         if args.verb=="update":
             action = args.key or "check"
-            return execute_settings_update(verb=action, source=args.source, reinstall=args.reinstall, hosts=args.extra_hosts, config_path=args.config)
+            return execute_settings_update(verb=action, source=args.source, reinstall=args.reinstall, hosts=args.extra_hosts, config_path=args.config, json_output=args.json)
         if args.verb=="get":
             if not args.key: output({"ok":False,"error":"missing setting key for get"}); return 2
             val = get_setting(args.key, args.config)
@@ -610,6 +610,13 @@ def main(argv: list[str] | None = None) -> int:
         output({"action":name,"ok":False,"error":"destructive action requires --yes"}); return 2
     confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"cli:{name}"} if args.yes and action.confirmation!="none" else None
     result=cloud.run(name,actor=args.actor,confirmation=confirmation,**inputs); output(result.to_dict()); return 0 if result.ok else result_exit(result)
+
+
+def main(argv: list[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except (KeyboardInterrupt, EOFError):
+        return 130
 
 
 if __name__ == "__main__": sys.exit(main())

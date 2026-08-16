@@ -152,12 +152,18 @@ def _real_cmd() -> list[str]:
 def native(
     *args: str,
 ) -> int:
-    return subprocess.call(
-        [
-            *_real_cmd(),
-            *args,
-        ]
-    )
+    try:
+        return subprocess.call(
+            [
+                *_real_cmd(),
+                *args,
+            ]
+        )
+    except (
+        EOFError,
+        KeyboardInterrupt,
+    ):
+        return 130
 
 
 def native_capture(
@@ -3007,9 +3013,15 @@ class APXTUI:
                     ):
                         continue
 
-                self.handle_enter(
-                    payload
-                )
+                try:
+                    self.handle_enter(
+                        payload
+                    )
+                except (
+                    EOFError,
+                    KeyboardInterrupt,
+                ):
+                    pass
 
         return 0
 
@@ -3059,7 +3071,13 @@ def main() -> int:
     if "--snapshot" in sys.argv:
         return snapshot()
 
-    return APXTUI().run()
+    try:
+        return APXTUI().run()
+    except (
+        EOFError,
+        KeyboardInterrupt,
+    ):
+        return 0
 
 
 if __name__ == "__main__":

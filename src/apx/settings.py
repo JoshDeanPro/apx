@@ -186,12 +186,25 @@ def execute_settings_doctor(config_path: Path | None = None, json_output: bool =
     return 0 if report.get("ok") else 1
 
 
-def execute_settings_update(verb: str = "check", source: str | None = None, reinstall: bool = True, hosts: list[str] | None = None, config_path: Path | None = None) -> int:
+def execute_settings_update(verb: str = "check", source: str | None = None, reinstall: bool = True, hosts: list[str] | None = None, config_path: Path | None = None, json_output: bool = False) -> int:
     from .selfupdate import UpdateError
     _, doc = get_document(config_path)
     if verb == "check":
         res = check_for_updates(source=source, config=doc)
-        print(json.dumps(res, indent=2, ensure_ascii=False))
+        if json_output:
+            print(json.dumps(res, indent=2, ensure_ascii=False))
+        else:
+            if res.get("update_available"):
+                commits = res.get("commits_behind", 1)
+                upstream = res.get("upstream", "upstream")
+                print(f"\n[APX] Update Available: {commits} new commit{'s' if commits != 1 else ''} ({upstream}).")
+                print("Run `apx update` or `apx settings update apply` to install.\n")
+            elif res.get("disabled"):
+                print(f"\n[APX] Update check is disabled in configuration.\n")
+            elif res.get("error"):
+                print(f"\n[APX] Could not check for updates: {res['error']}\n")
+            else:
+                print(f"\n[APX] APX is up to date! (Version {__version__})\n")
         return 0
     if verb == "push":
         from .config import load
@@ -199,24 +212,41 @@ def execute_settings_update(verb: str = "check", source: str | None = None, rein
             hosts_dict, _ = load(config_path)
             targets = [hosts_dict[name] for name in (hosts or [h for h, v in hosts_dict.items() if not v.is_self])]
         except KeyError as error:
-            print(json.dumps({"ok": False, "error": f"unknown host {error}"}, indent=2))
+            if json_output: print(json.dumps({"ok": False, "error": f"unknown host {error}"}, indent=2))
+            else: print(f"Error: unknown host {error}")
             return 2
         except Exception as error:
-            print(json.dumps({"ok": False, "error": str(error)}, indent=2))
+            if json_output: print(json.dumps({"ok": False, "error": str(error)}, indent=2))
+            else: print(f"Error: {error}")
             return 1
         results, failures = [], 0
         for host in targets:
             try:
-                results.append(push_to_host(host))
+                r = push_to_host(host)
+                results.append(r)
+                if not json_output:
+                    print(f"✓ Successfully published APX to {host.name} (version {r.get('version')})")
             except UpdateError as error:
                 results.append({"host": host.name, "ok": False, "error": str(error)})
                 failures += 1
-        print(json.dumps({"ok": failures == 0, "nodes": results}, indent=2))
+                if not json_output:
+                    print(f"✗ Failed to publish to {host.name}: {error}")
+        if json_output:
+            print(json.dumps({"ok": failures == 0, "nodes": results}, indent=2))
         return 1 if failures else 0
     try:
         res = apply_update(reinstall=reinstall, source=source, config=doc)
-        print(json.dumps(res, indent=2, ensure_ascii=False))
+        if json_output:
+            print(json.dumps(res, indent=2, ensure_ascii=False))
+        else:
+            if res.get("updated"):
+                print(f"\n[APX] Successfully updated APX! ({res.get('before')} → {res.get('after')})\n")
+            else:
+                print(f"\n[APX] APX is already up to date ({__version__}).\n")
         return 0
     except UpdateError as error:
-        print(json.dumps({"ok": False, "error": str(error)}, indent=2))
+        if json_output:
+            print(json.dumps({"ok": False, "error": str(error)}, indent=2))
+        else:
+            print(f"\n[APX] Update failed: {error}\n")
         return 1
