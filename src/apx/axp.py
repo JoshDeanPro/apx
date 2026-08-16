@@ -355,6 +355,10 @@ class ActionReceipt:
     verified_state: dict[str, Any] | None = None
     postconditions: tuple[dict[str, Any], ...] = ()
     partial_effects: tuple[dict[str, Any], ...] = ()
+    digest: str | None = None
+    signature: str | None = None
+    signer_node: str | None = None
+    key_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.status not in ACTION_STATUSES: raise ValueError(f"invalid receipt status {self.status!r}; expected one of {ACTION_STATUSES}")
