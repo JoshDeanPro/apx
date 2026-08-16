@@ -73,6 +73,7 @@ class Item:
     label: str
     detail: str = ""
     kind: str = ""
+    selectable: bool = True
     data: dict[str, Any] = field(
         default_factory=dict
     )
@@ -1325,42 +1326,40 @@ class APXTUI:
                 )
             )
 
+        is_multiselect = screen.key == "select"
+
         for index in range(
             start,
             end,
         ):
             item = items[index]
+            is_item_selectable = item.selectable and item.kind not in ("header", "separator", "info")
 
             selected = (
-                index == screen.index
+                index == screen.index and is_item_selectable
             )
 
-            checked = (
-                item.key
-                in screen.multi
-            )
-
-            marker = (
-                "[✓]"
-                if checked
-                else "[ ]"
-            )
+            if is_multiselect or item.kind == "checkbox":
+                checked = item.key in screen.multi
+                marker = "[✓] " if checked else "[ ] "
+            else:
+                marker = ""
 
             pointer = (
-                "›"
+                "› "
                 if selected
-                else " "
+                else ("  " if is_item_selectable else "")
             )
 
             style = (
                 "class:selected"
                 if selected
-                else ""
+                else ("class:muted" if not is_item_selectable else "")
             )
 
             line = (
-                f"{pointer} "
-                f"{marker} "
+                f"{pointer}"
+                f"{marker}"
                 f"{item.label}"
             )
 
@@ -1388,6 +1387,12 @@ class APXTUI:
                 )
             )
 
+        footer_text = (
+            "↑↓ move   SPACE select   ENTER confirm   ESC/← back   R refresh   Q quit\n"
+            if is_multiselect
+            else "↑↓ move   ENTER open   ESC/← back   R refresh   Q quit\n"
+        )
+
         output.extend(
             [
                 (
@@ -1396,12 +1401,7 @@ class APXTUI:
                 ),
                 (
                     "class:footer",
-                    "↑↓ move   "
-                    "SPACE select   "
-                    "ENTER open/toggle   "
-                    "ESC/← back   "
-                    "R refresh   "
-                    "Q quit\n",
+                    footer_text,
                 ),
             ]
         )
@@ -1433,6 +1433,17 @@ class APXTUI:
 
         kb = KeyBindings()
 
+        def next_selectable_index(items: list[Item], current: int, delta: int) -> int:
+            if not items:
+                return 0
+            n = len(items)
+            idx = current
+            for _ in range(n):
+                idx = (idx + delta) % n
+                if items[idx].selectable and items[idx].kind not in ("header", "separator", "info"):
+                    return idx
+            return current
+
         @kb.add("up")
         @kb.add("k")
         def _up(event) -> None:
@@ -1441,10 +1452,11 @@ class APXTUI:
             )
 
             if items:
-                self.screen.index = (
-                    self.screen.index
-                    - 1
-                ) % len(items)
+                self.screen.index = next_selectable_index(
+                    items,
+                    self.screen.index,
+                    -1,
+                )
 
             event.app.invalidate()
 
@@ -1456,10 +1468,11 @@ class APXTUI:
             )
 
             if items:
-                self.screen.index = (
-                    self.screen.index
-                    + 1
-                ) % len(items)
+                self.screen.index = next_selectable_index(
+                    items,
+                    self.screen.index,
+                    1,
+                )
 
             event.app.invalidate()
 
@@ -1469,26 +1482,29 @@ class APXTUI:
                 self.screen
             )
 
-            if not items:
+            if not items or self.screen.index >= len(items):
                 return
 
             item = items[
                 self.screen.index
             ]
 
-            if (
-                item.key
-                in self.screen.multi
-            ):
-                self.screen.multi.remove(
-                    item.key
-                )
-            else:
-                self.screen.multi.add(
-                    item.key
-                )
+            if not (item.selectable and item.kind not in ("header", "separator", "info")):
+                return
 
-            event.app.invalidate()
+            if self.screen.key == "select" or item.kind == "checkbox":
+                if item.key in self.screen.multi:
+                    self.screen.multi.remove(item.key)
+                else:
+                    self.screen.multi.add(item.key)
+                event.app.invalidate()
+            else:
+                event.app.exit(
+                    result=(
+                        "enter",
+                        item,
+                    )
+                )
 
         @kb.add("enter")
         def _enter(event) -> None:
@@ -1496,12 +1512,15 @@ class APXTUI:
                 self.screen
             )
 
-            if not items:
+            if not items or self.screen.index >= len(items):
                 return
 
             item = items[
                 self.screen.index
             ]
+
+            if not (item.selectable and item.kind not in ("header", "separator", "info")):
+                return
 
             event.app.exit(
                 result=(
