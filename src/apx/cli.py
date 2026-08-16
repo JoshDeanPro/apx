@@ -263,14 +263,18 @@ def main(argv: list[str] | None = None) -> int:
         try: output(_install_agent(args.agent,root=_Path(args.output),global_scope=args.global_scope)); return 0
         except ValueError as error: output({"ok":False,"error":str(error)}); return 2
         except Exception as error: output({"ok":False,"error":str(error)}); return 1
-    cloud=APX(args.config)
+    try:
+        cloud=APX(args.config)
+    except Exception as error:
+        output({"ok":False,"error":str(error)})
+        return 1
     if args.command=="menu":
         from .tui import run as run_menu
         return run_menu(cloud,args.actor)
     if args.command=="plugins":
         output({"plugins":[cloud.plugin_manager.inspect(name) for name in sorted(cloud.plugin_manager.metadata)]}); return 0
     if args.command=="fleet":
-        result=cloud.run("fleet.health",actor=args.actor); output(result.to_dict()); return 0 if result.ok and result.result.get("healthy") else 1
+        result=cloud.run("fleet.health",actor=args.actor); output(result.to_dict()); return 0 if result.ok and result.result.get("healthy") else result_exit(result)
     if args.command=="agent":
         v=args.verb
         common=dict(description=args.description,project_description=args.project_description,user=args.user,runtime=args.runtime,
@@ -293,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
             action=cloud.actions.get("agent.setup")
             result=cloud.run("agent.setup",actor=args.actor,confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"cli:agent.setup:{args.name}"},
                 name=args.name,host=args.host,repo=args.repo,force=args.force,enable=args.enable,start=args.start,**common)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="environment":
         if args.verb=="sources": result=cloud.run("environment.sources",actor=args.actor)
         else:
@@ -301,7 +305,7 @@ def main(argv: list[str] | None = None) -> int:
             if not args.yes: output({"ok":False,"error":"environment ingest requires --yes"}); return 2
             action=cloud.actions.get("environment.ingest")
             result=cloud.run("environment.ingest",actor=args.actor,confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"cli:environment.ingest:{args.source}"},source=args.source)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="plugin":
         try: output(cloud.plugin_manager.inspect(args.name)); return 0
         except KeyError as error: output({"ok":False,"error":str(error)}); return 1
@@ -311,7 +315,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command=="group":
         if args.verb=="show": output(cloud.group_inspect(args.name)); return 0
         if not args.resource: output({"ok":False,"error":"resource is required for group add/remove"}); return 2
-        result=cloud.run(f"group.{args.verb}",actor=args.actor,resource=args.resource,group=args.name); output(result.to_dict()); return 0 if result.ok else 1
+        result=cloud.run(f"group.{args.verb}",actor=args.actor,resource=args.resource,group=args.name); output(result.to_dict()); return result_exit(result)
+
     if args.command=="run":
         try:
             inputs=json.loads(args.input)
@@ -342,20 +347,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.provider and definition.provider!=args.provider: output({"ok":False,"error":"action is not supplied by requested provider"}); return 1
         output(definition.to_dict()); return 0
     if args.command=="whoami":
-        result=cloud.run("actor.whoami",actor=args.actor,subject=args.target_actor or args.actor); output(result.to_dict()); return 0 if result.ok else 1
+        result=cloud.run("actor.whoami",actor=args.actor,subject=args.target_actor or args.actor); output(result.to_dict()); return result_exit(result)
     if args.command=="policy":
         target={}
         for pair in args.target:
             if "=" not in pair: output({"ok":False,"error":f"--target must be KEY=VALUE, got {pair!r}"}); return 2
             key,value=pair.split("=",1); target[key]=value
-        result=cloud.run("policy.explain",actor=args.actor,subject=args.target_actor,requested_action=args.action,scope=target); output(result.to_dict()); return 0 if result.ok else 1
+        result=cloud.run("policy.explain",actor=args.actor,subject=args.target_actor,requested_action=args.action,scope=target); output(result.to_dict()); return result_exit(result)
     if args.command=="state":
-        if args.verb=="show": result=cloud.run("state.show",actor=args.actor); output(result.to_dict()); return 0 if result.ok else 1
+        if args.verb=="show": result=cloud.run("state.show",actor=args.actor); output(result.to_dict()); return result_exit(result)
         if not args.name: output({"ok":False,"error":"name is required for state set"}); return 2
-        result=cloud.run("state.set",actor=args.actor,name=args.name,reason=args.reason,changed_by=args.actor); output(result.to_dict()); return 0 if result.ok else 1
+        result=cloud.run("state.set",actor=args.actor,name=args.name,reason=args.reason,changed_by=args.actor); output(result.to_dict()); return result_exit(result)
     if args.command=="docs":
         result=cloud.run("docs.generate",actor=args.actor,project=args.project,audience=args.audience)
-        if not result.ok: output(result.to_dict()); return 1
+        if not result.ok: output(result.to_dict()); return result_exit(result)
         print(result.result["content"]); return 0
     if args.command=="secret":
         import getpass
@@ -365,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
             value=getpass.getpass("Secret value: ") if sys.stdin.isatty() else sys.stdin.readline().rstrip("\n")
             result=cloud.run("secret.set",actor=args.actor,id=args.id,value=value)
         else: result=cloud.run(f"secret.{args.verb}",actor=args.actor,id=args.id)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="mission":
         v=args.verb
         if v=="list": result=cloud.run("mission.list",actor=args.actor,project=args.project,status=args.status)
@@ -383,9 +388,9 @@ def main(argv: list[str] | None = None) -> int:
             result=cloud.run("mission.grant",actor=args.actor,mission=args.id,grantee=args.grantee,action=args.grant_action)
         else:  # docs
             result=cloud.run("mission.docs",actor=args.actor,mission=args.id,audience=args.audience)
-            if not result.ok: output(result.to_dict()); return 1
+            if not result.ok: output(result.to_dict()); return result_exit(result)
             print(result.result["content"]); return 0
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="task":
         v=args.verb
         if v=="list": result=cloud.run("task.list",actor=args.actor,mission=args.mission,status=args.status,assigned_actor=args.claimant)
@@ -403,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
         elif v in {"block","cancel"}: result=cloud.run(f"task.{v}",actor=args.actor,task=args.id,reason=args.reason,changed_by=args.actor)
         elif v=="verify": result=cloud.run("task.verify",actor=args.actor,task=args.id,criteria_met=args.criteria,verified_by=args.actor)
         elif v in {"claim","release"}: result=cloud.run(f"task.{v}",actor=args.actor,task=args.id,claimant=args.claimant or args.actor)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="blueprint":
         v=args.verb
         if v=="list": result=cloud.run("blueprint.list",actor=args.actor,category=args.category,tag=args.tag)
@@ -424,10 +429,10 @@ def main(argv: list[str] | None = None) -> int:
                 confirmation={"level":action.confirmation,"confirmed":True,"authorization_id":f"cli:blueprint.{v}:{args.id}"}
                 if v=="apply": result=cloud.run("blueprint.apply",actor=args.actor,confirmation=confirmation,blueprint=args.id,version=args.version,project=args.project,inputs=blueprint_inputs)
                 else: result=cloud.run("blueprint.upgrade",actor=args.actor,confirmation=confirmation,blueprint=args.id,project=args.project,inputs=blueprint_inputs)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="discover":
         result=cloud.run("discovery.capabilities",actor=args.actor,subject=args.subject or args.actor,namespaces=args.namespaces,compact=not args.full)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="grant":
         v=args.verb
         if v=="issue":
@@ -439,12 +444,12 @@ def main(argv: list[str] | None = None) -> int:
         elif not args.id: output({"ok":False,"error":f"a grant id is required for grant {v}"}); return 2
         elif v=="show": result=cloud.run("grant.inspect",actor=args.actor,grant=args.id)
         else: result=cloud.run("grant.revoke",actor=args.actor,grant=args.id)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="adapter":
         if not (args.url or args.provider or args.bridge):
             output({"ok":False,"error":"one of --url, --provider, or --bridge is required for adapter test"}); return 2
         result=cloud.run("adapter.test",actor=args.actor,url=args.url,provider=args.provider,bridge=args.bridge)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="node":
         v=args.verb
         if v=="list": result=cloud.run("node.list",actor=args.actor)
@@ -452,18 +457,18 @@ def main(argv: list[str] | None = None) -> int:
         elif v=="show": result=cloud.run("node.inspect",actor=args.actor,host=args.host)
         elif v=="refresh": result=cloud.run("node.refresh",actor=args.actor,host=args.host)
         else: result=cloud.run("node.permissions",actor=args.actor,host=args.host,subject=args.subject or args.actor)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="search":
         result=cloud.run("search.query",actor=args.actor,query=args.query,kinds=args.kinds,limit=args.limit)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="work":
-        result=cloud.run("work.current",actor=args.actor,subject=args.subject or args.actor); output(result.to_dict()); return 0 if result.ok else 1
+        result=cloud.run("work.current",actor=args.actor,subject=args.subject or args.actor); output(result.to_dict()); return result_exit(result)
     if args.command=="auth":
         if args.verb=="status": result=cloud.run("auth.status",actor=args.actor)
         else:
             credentials={"token":args.token} if args.token else {"principal_id":args.actor}
             result=cloud.run("auth.authenticate",actor=args.actor,method=args.method,credentials=credentials)
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="link":
         args.command,args.verb="identity","device-link"
     if args.command=="identity":
@@ -512,7 +517,7 @@ def main(argv: list[str] | None = None) -> int:
         elif v=="enroll-cancel": result=cloud.run("identity.enrollment.cancel",actor=args.actor,request_id=args.target,cancelled_by=args.actor)
         elif v=="enroll-approve": result=cloud.run("identity.enrollment.approve",actor=args.actor,request_id=args.target,approved_by=args.actor,openpower_ref=args.openpower_ref)
         else: result=cloud.run("identity.enrollment.deny",actor=args.actor,request_id=args.target,denied_by=args.actor)  # enroll-deny
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
     if args.command=="credential":
         v=args.verb
         if v=="issue":
@@ -523,7 +528,8 @@ def main(argv: list[str] | None = None) -> int:
         elif v=="rotate": result=cloud.run("credential.rotate",actor=args.actor,credential_id=args.id,fingerprint=args.fingerprint,secret_ref=args.secret_ref)
         elif v=="confirm-rotation": result=cloud.run("credential.confirm_rotation",actor=args.actor,previous_credential_id=args.id)
         else: result=cloud.run("credential.revoke",actor=args.actor,credential_id=args.id,revoked_by=args.actor)  # revoke
-        output(result.to_dict()); return 0 if result.ok else 1
+        output(result.to_dict()); return result_exit(result)
+
     if args.command=="service": name=f"service.{args.verb}"; inputs={"host":args.host,"service":args.service}
     elif args.command=="hosts": name,inputs="host.list",{}
     elif args.command=="inspect": name,inputs="host.inspect",{"host":args.host}

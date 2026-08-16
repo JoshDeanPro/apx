@@ -43,11 +43,15 @@ class LocalTransport(Transport):
 
 class SSHTransport(Transport):
     def run(self, argv: list[str], *, timeout: int = 30, input_text: str | None = None) -> CommandResult:
-        command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "ConnectionAttempts=1", self.host.target or "", "--", shlex.join(argv)]
+        target = self.host.target or ""
+        if not target or target.startswith("-"):
+            raise TransportError(f"invalid SSH host target {target!r}")
+        command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "ConnectionAttempts=1", target, "--", shlex.join(argv)]
         try:
             result = run(command,input_text=input_text,timeout=timeout)
         except (ProcessError,ProcessTimeout) as error: raise TransportError(str(error)) from error
         return CommandResult(tuple(command), result.exit_code, result.stdout, result.stderr)
+
 
 
 class FallbackTransport(Transport):

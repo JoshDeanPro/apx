@@ -1,7 +1,6 @@
-from __future__ import annotations
-
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -36,18 +35,28 @@ VOICE_PID = (
 )
 
 
+def _cmd(target_path: Path) -> list[str]:
+    if target_path.exists():
+        return [str(target_path)]
+    found = shutil.which("apx")
+    if found:
+        return [found]
+    return [sys.executable, "-m", "apx.cli"]
+
+
 def native(*args: str) -> None:
     subprocess.run(
-        [str(NATIVE), *args],
+        [*_cmd(NATIVE), *args],
         check=False,
     )
 
 
 def outer(*args: str) -> None:
     subprocess.run(
-        [str(OUTER), *args],
+        [*_cmd(OUTER), *args],
         check=False,
     )
+
 
 
 def voice_badge() -> str:
