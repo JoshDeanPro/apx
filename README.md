@@ -32,8 +32,11 @@ irm https://openpower.dev/install.ps1 | iex
 ### Or Install via Python / Git
 
 ```bash
-# From source (development checkout)
-git clone https://github.com/EthanGegos/apx.git
+# Direct pip install
+pip install git+https://github.com/JoshDeanPro/apx.git
+
+# Or clone from source (development checkout)
+git clone https://github.com/JoshDeanPro/apx.git
 cd apx
 pip install -e .
 cp apx.example.toml apx.toml
