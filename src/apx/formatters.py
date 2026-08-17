@@ -137,12 +137,18 @@ def render_resources_table(resources: list[Any]) -> None:
     table.add_column("Tags", style="dim")
 
     for res in resources:
-        rid = getattr(res, "id", "") or res.get("id", "")
-        kind = getattr(res, "kind", "") or res.get("kind", "")
-        name = getattr(res, "name", "") or res.get("name", "")
-        tags = getattr(res, "tags", []) or res.get("tags", [])
+        if isinstance(res, dict):
+            rid = res.get("id", "")
+            kind = res.get("kind", "")
+            name = res.get("name", "")
+            tags = res.get("tags", [])
+        else:
+            rid = getattr(res, "id", "")
+            kind = getattr(res, "kind", "")
+            name = getattr(res, "name", "")
+            tags = getattr(res, "tags", [])
         tags_str = ", ".join(tags) if tags else "—"
-        table.add_row(rid, f"[{kind}]", name, tags_str)
+        table.add_row(str(rid), f"[{kind}]", str(name), tags_str)
 
     console.print(table)
 
@@ -160,17 +166,24 @@ def render_providers_table(providers: list[Any]) -> None:
     )
     table.add_column("Provider ID", style="bold cyan", no_wrap=True)
     table.add_column("Name", style="white")
-    table.add_column("Provenance", style="dim")
     table.add_column("Actions", justify="right", style="green")
     table.add_column("Status", justify="center")
 
     for p in providers:
-        pid = getattr(p, "id", "") or (p.get("id", "") if isinstance(p, dict) else "")
-        name = getattr(p, "name", "") or (p.get("name", "") if isinstance(p, dict) else "")
-        prov = getattr(p, "provenance", "native") or (p.get("provenance", "native") if isinstance(p, dict) else "native")
-        actions_count = len(getattr(p, "actions", [])) if hasattr(p, "actions") else len(p.get("actions", [])) if isinstance(p, dict) else 0
+        if isinstance(p, dict):
+            pid = p.get("id", "")
+            name = p.get("name", "")
+            actions_count = p.get("actions", 0)
+        elif hasattr(p, "provider"):
+            pid = getattr(p.provider, "id", "")
+            name = getattr(p.provider, "name", "")
+            actions_count = len(getattr(p, "actions", []))
+        else:
+            pid = getattr(p, "id", "")
+            name = getattr(p, "name", "")
+            actions_count = len(getattr(p, "actions", [])) if hasattr(p, "actions") else 0
         status = Text(" ONLINE ", style="bold green on black")
-        table.add_row(pid, name, prov, str(actions_count), status)
+        table.add_row(str(pid), str(name), str(actions_count), status)
 
     console.print(table)
 

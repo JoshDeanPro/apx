@@ -84,7 +84,7 @@ class ConnectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config=Path(directory)/"config.toml"; config.write_text('version=1\n[[hosts]]\nname="local"\ntransport="local"\n')
             with patch("builtins.print") as printed:
-                code=cli_main(["--config",str(config),"run","host.inspect","--input",'{"host":"local"}'])
+                code=cli_main(["--config",str(config),"run","host.inspect","--input",'{"host":"local"}',"--json"])
             self.assertEqual(code,0); self.assertIn('"type": "action.result"',printed.call_args.args[0])
 
     def test_stdio_mcp_adapter_discovers_apx(self):

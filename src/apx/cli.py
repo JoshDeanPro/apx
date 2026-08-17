@@ -322,7 +322,7 @@ def _main(argv: list[str] | None = None) -> int:
     cred_p.add_argument("verb", choices=["issue", "show", "rotate", "confirm-rotation", "revoke"])
     cred_p.add_argument("id", nargs="?")
     cred_p.add_argument("--principal")
-    cred_p.add_argument("--type", default="local_token")
+    cred_p.add_argument("--type", default="opaque_bearer")
     cred_p.add_argument("--issuer", default="local")
     cred_p.add_argument("--expires")
     cred_p.add_argument("--fingerprint")

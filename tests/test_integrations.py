@@ -154,7 +154,7 @@ class IntegrationTests(unittest.TestCase):
                 response=server.dispatch({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"cloudflare_zone_list","arguments":{}}})
                 self.assertTrue(response["result"]["structuredContent"]["ok"])
             with mocked_http({"success":True,"result":[]}),patch("builtins.print") as printed:
-                self.assertEqual(cli_main(["--config",str(path),"run","cloudflare.zone.list"]),0)
+                self.assertEqual(cli_main(["--config",str(path),"run","cloudflare.zone.list","--json"]),0)
                 self.assertIn('"action": "cloudflare.zone.list"',printed.call_args.args[0])
 
     def test_cloudflare_and_discord_deeper_actions(self):
