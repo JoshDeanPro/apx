@@ -159,14 +159,16 @@ env   -u PYTHONPATH   -u PYTHONHOME   -u PIP_TARGET   -u PIP_PREFIX   -u PIP_USE
 
 "$NEXT/bin/python" -c 'import apx; raise SystemExit(0 if apx.__version__ == "'"$VERSION"'" else 1)' || fail "The installed APX package has the wrong version."
 
-if [ ! -x "$NEXT/bin/apx" ]; then
-  cat > "$NEXT/bin/apx" <<'APX_RUNTIME_LAUNCHER'
+# pip-generated console scripts contain the absolute staging
+# venv path. APX stages at runtime-next and activates at runtime,
+# so always replace the APX launcher with a directory-relative
+# launcher before activation.
+cat > "$NEXT/bin/apx" <<'APX_RUNTIME_LAUNCHER'
 #!/bin/bash
 HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 exec "$HERE/python" -c 'from apx.entry import main; raise SystemExit(main())' "$@"
 APX_RUNTIME_LAUNCHER
-  chmod 755 "$NEXT/bin/apx"
-fi
+chmod 755 "$NEXT/bin/apx"
 
 UI="$("$NEXT/bin/python" -c 'from pathlib import Path; import apx; print(Path(apx.__file__).resolve().parent / "_ui")')"
 for f in index.mjs package.json package-lock.json; do
@@ -189,6 +191,20 @@ if ! mv "$NEXT" "$RUNTIME"; then
     mv "$PREVIOUS" "$RUNTIME" 2>/dev/null || true
   fi
   fail "The new APX version could not be activated."
+fi
+
+# Re-verify AFTER runtime-next has become runtime. If activation
+# exposed a path-sensitive launcher/runtime problem, roll back
+# automatically before changing the user's public shim.
+if ! "$RUNTIME/bin/python" -m apx --version >/dev/null 2>&1    || ! "$RUNTIME/bin/apx" --version >/dev/null 2>&1    || ! "$RUNTIME/bin/apx" --help >/dev/null 2>&1
+then
+  rm -rf "$RUNTIME" 2>/dev/null || true
+
+  if [ -d "$PREVIOUS" ]; then
+    mv "$PREVIOUS" "$RUNTIME" 2>/dev/null || true
+  fi
+
+  fail "The activated APX runtime could not start."
 fi
 
 cat > "$BIN/apx" <<'LAUNCHER'
