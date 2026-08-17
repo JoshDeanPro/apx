@@ -13,6 +13,9 @@ import re
 import select
 import sys
 import time
+import shutil
+import tempfile
+from pathlib import Path
 import pytest
 
 from apx.cli import _main
@@ -175,10 +178,67 @@ class InkSession:
         env["NODE_ENV"] = "production"
         env["DEV"] = "false"
 
+        self._fixture_dir = tempfile.TemporaryDirectory(
+            prefix="apx-tui-fixture-"
+        )
+
+        fixture_python = os.path.join(
+            self._fixture_dir.name,
+            "python"
+        )
+
+        fixture = """#!/bin/sh
+if [ "$1" = "-m" ] && [ "$2" = "apx.ui_bridge" ]; then
+  case "${3:-}" in
+    devices)
+      printf '%s\n' '{"ok":true,"items":[{"id":"local","name":"Local Device","system_name":"local","local":true,"status":"Local","health":{"state":"healthy","label":"Online"}}]}'
+      exit 0
+      ;;
+    services)
+      printf '%s\n' '{"ok":true,"items":[{"id":"porkbun","name":"porkbun","description":"Test service","status":"Available","health":{"state":"healthy","label":"Available"}}]}'
+      exit 0
+      ;;
+    porkbun-domains)
+      printf '%s\n' '{"ok":false,"error":"Test fixture: Porkbun credentials unavailable"}'
+      exit 1
+      ;;
+  esac
+fi
+
+exec "$APX_REAL_PYTHON" "$@"
+"""
+
+        Path(fixture_python).write_text(
+            fixture,
+            encoding="utf-8",
+        )
+
+        os.chmod(
+            fixture_python,
+            0o755,
+        )
+
+        env["APX_REAL_PYTHON"] = sys.executable
+        env["APX_PYTHON"] = fixture_python
+
+        node = shutil.which("node")
+
+        if not node:
+            raise RuntimeError(
+                "Node.js is required for Ink PTY tests."
+            )
+
+        ui = (
+            Path(__file__).resolve().parents[1]
+            / "src"
+            / "apx"
+            / "_ui"
+            / "index.mjs"
+        )
+
         command = [
-            sys.executable,
-            "-c",
-            "from apx.entry import main; raise SystemExit(main())",
+            node,
+            str(ui),
             *(args or []),
         ]
 
@@ -333,6 +393,8 @@ class InkSession:
         except OSError:
             pass
 
+        self._fixture_dir.cleanup()
+
 
 def test_tui_root_menu_and_devices_navigation_in_pty():
     session = InkSession()
@@ -385,13 +447,9 @@ def test_tui_services_porkbun_domains_flow_in_pty():
             ]
         )
 
-        # 2. Porkbun is index 1 on the Services screen.
-        os.write(session.master, b"j")
-        time.sleep(0.15)
-        session.clear()
-        
-        # 3. Press Enter to select Porkbun
-        os.write(session.master, b"\r")
+        # Porkbun is item 2 after Search.
+        # Use the stable numeric shortcut rather than racing a rerender.
+        session.write(b"2")
         session.wait_for(
             [
                 "Porkbun",

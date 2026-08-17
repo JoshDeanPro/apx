@@ -1,4 +1,4 @@
 # SPDX-License-Identifier: MIT
-from .cli import main
+from .entry import main
 
 raise SystemExit(main())

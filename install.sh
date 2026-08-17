@@ -155,7 +155,18 @@ fi
 rm -rf "$NEXT"
 "$PY" -m venv "$NEXT" || fail "The APX runtime could not be prepared."
 "$NEXT/bin/python" -m pip install --quiet --upgrade pip setuptools wheel || fail "The APX runtime could not be prepared."
-"$NEXT/bin/python" -m pip install --quiet "$TMP/$WHEEL" || fail "APX could not be installed."
+env   -u PYTHONPATH   -u PYTHONHOME   -u PIP_TARGET   -u PIP_PREFIX   -u PIP_USER   -u PYTHONUSERBASE   "$NEXT/bin/python" -m pip install --quiet "$TMP/$WHEEL" || fail "APX could not be installed."
+
+"$NEXT/bin/python" -c 'import apx; raise SystemExit(0 if apx.__version__ == "'"$VERSION"'" else 1)' || fail "The installed APX package has the wrong version."
+
+if [ ! -x "$NEXT/bin/apx" ]; then
+  cat > "$NEXT/bin/apx" <<'APX_RUNTIME_LAUNCHER'
+#!/bin/bash
+HERE="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+exec "$HERE/python" -c 'from apx.entry import main; raise SystemExit(main())' "$@"
+APX_RUNTIME_LAUNCHER
+  chmod 755 "$NEXT/bin/apx"
+fi
 
 UI="$("$NEXT/bin/python" -c 'from pathlib import Path; import apx; print(Path(apx.__file__).resolve().parent / "_ui")')"
 for f in index.mjs package.json package-lock.json; do

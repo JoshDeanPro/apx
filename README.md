@@ -149,6 +149,6 @@ pytest
 
 ## License
 
-APX is open source software licensed under the **MIT License**. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) for details.
+APX is open source software licensed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
 
 Copyright (c) 2026 JoshDeanPro
