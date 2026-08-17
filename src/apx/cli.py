@@ -70,7 +70,7 @@ def _main(argv: list[str] | None = None) -> int:
     init = sub.add_parser("init", help="discover this machine and create minimal configuration")
     init.add_argument("--output", default=None, help="where to write the config (default: $APX_HOME/config.toml)")
     init.add_argument("--host", action="append", default=[], metavar="NAME=SSH_TARGET")
-    init.add_argument("--non-interactive", action="store_true")
+    init.add_argument("--non-interactive", "-y", "--yes", action="store_true", help="run non-interactively")
     init.add_argument("--force", action="store_true")
     init.add_argument("--json", action="store_true", help="output raw JSON")
 
