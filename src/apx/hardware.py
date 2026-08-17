@@ -191,7 +191,7 @@ def inspect_hardware() -> dict[str, Any]:
         compute_tier = "lightweight_node"
 
     return {
-        "node_id": platform.node(),
+        "node_id": os.environ.get("APX_NODE_ID", "local"),
         "compute_tier": compute_tier,
         "cpu": cpu,
         "memory": mem,

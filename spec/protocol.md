@@ -13,7 +13,7 @@ described by RFC 2119 and RFC 8174.
 - A **Node** is a Provider representing a machine or environment.
 - An **Authority** optionally authenticates identities or issues scoped delegation.
 
-No role depends on OpenPower. A participant MAY implement several roles.
+Roles are decoupled and vendor-neutral. A participant MAY implement several roles.
 
 ## Wire format and versions
 

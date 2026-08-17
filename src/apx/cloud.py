@@ -34,11 +34,8 @@ from .blueprints import Blueprint, BlueprintError, BlueprintRegistry, BlueprintS
 from .blueprints import apply as _run_blueprint_apply, plan as _run_blueprint_plan
 from . import filesystem as _filesystem
 from .grants import Grant, GrantError, GrantStore
-from . import agents as _agents
-from .agents import AgentError, AgentStore
 from .nodes import NodeError, NodeStore
 from . import search as _search
-from . import environment_ingest as _environment_ingest
 from .transports import transport_for
 
 
@@ -79,11 +76,8 @@ class APX:
         self._register_search_actions()
         self._register_update_actions()
         self._register_fleet_actions()
-        self.agents=AgentStore(self.config_path)
-        self._register_agent_actions()
         self.connections=[]; self.adapters={}; self.connection_health=[]
         self._load_connections()
-        self._register_environment_ingest_actions()
         self.bridges={}; self.bridge_health: list[dict[str, Any]] = []
         self._load_bridges()
         self.events = EventRouter()
@@ -203,21 +197,11 @@ class APX:
     def _register_update_actions(self) -> None:
         obj=lambda properties,required=():{"type":"object","properties":properties,"required":list(required),"additionalProperties":False}
         self.actions.register(RegisteredAction("system.version","Report the running apx package version and git commit",self.system_version,obj({})))
-        self.actions.register(RegisteredAction("system.check_update","Check, read-only, whether the APX software is behind: a development checkout is compared against its upstream branch, an installed runtime reports its configured update source",self.system_check_update,obj({})))
-        self.actions.register(RegisteredAction("system.update","Update the APX software, never the machine's local state: a development checkout fast-forwards (refusing to run with uncommitted changes), an installed runtime installs its configured source",self.system_update,obj({"reinstall":{"type":"boolean"}}),False,False,confirmation="none",idempotent=True,risk="low_change"))
+        pass
 
     def system_version(self) -> dict[str,Any]:
-        from .selfupdate import version_info
-        return version_info()
-
-    def system_check_update(self) -> dict[str,Any]:
-        from .selfupdate import check_for_updates
-        return check_for_updates(config=self.config)
-
-    def system_update(self, reinstall: bool = True) -> dict[str,Any]:
-        from .selfupdate import UpdateError, apply_update
-        try: return apply_update(reinstall=reinstall,config=self.config)
-        except UpdateError as error: raise ActionError(str(error)) from error
+        from . import __version__
+        return {"version": __version__}
 
     def _register_fleet_actions(self) -> None:
         obj=lambda properties,required=():{"type":"object","properties":properties,"required":list(required),"additionalProperties":False}
@@ -253,89 +237,6 @@ class APX:
         problems=[f"host {name}: {result['error']}" for name,result in hosts.items() if isinstance(result,dict) and "error" in result]
         problems+=[f"{name}: {result['error']}" for name,result in providers.items() if isinstance(result,dict) and "error" in result]
         return {"subject":actor_id,"hosts":hosts,"providers":providers,"healthy":not problems,"problems":problems}
-
-    def _register_agent_actions(self) -> None:
-        obj=lambda properties,required=():{"type":"object","properties":properties,"required":list(required),"additionalProperties":False}
-        s={"type":"string"}
-        self.actions.register(RegisteredAction(
-            "agent.plan","Render (but do not write) the run.sh/systemd-unit/prompt a Standing Agent setup would produce -- the DRY-RUN for agent.setup",
-            self.agent_plan,obj({"name":s,"host":s,"repo":s,"description":s,"project_description":s,"user":s,"runtime":s,"model":s,"effort":s,
-                "timeout":{"type":"integer"},"idle_gap":{"type":"integer"},"status_command":s,"test_command":s},("name","host","repo")),
-        ))
-        self.actions.register(RegisteredAction(
-            "agent.setup","Stand up a new Standing Agent (the apx-autopilot pattern: a coding-agent CLI run to completion, one iteration at a time, forever, under systemd) on a configured Node. Writes config; never starts the loop unless start=true.",
-            self.agent_setup,obj({"name":s,"host":s,"repo":s,"description":s,"project_description":s,"user":s,"runtime":s,"model":s,"effort":s,
-                "timeout":{"type":"integer"},"idle_gap":{"type":"integer"},"status_command":s,"test_command":s,
-                "force":{"type":"boolean"},"enable":{"type":"boolean"},"start":{"type":"boolean"}},("name","host","repo")),
-            False,False,confirmation="confirm",tags=("agent",),resource_type="agent",
-        ))
-        self.actions.register(RegisteredAction("agent.list","List Standing Agents apx has set up",self.agent_list,obj({"host":s})))
-        self.actions.register(RegisteredAction("agent.inspect","Inspect a Standing Agent's configuration and current service state",self.agent_inspect,obj({"name":s},("name",))))
-        self.actions.register(RegisteredAction("agent.logs","Read a Standing Agent's systemd journal",self.agent_logs,obj({"name":s,"lines":{"type":"integer"}},("name",))))
-        self.actions.register(RegisteredAction(
-            "agent.remove","Stop tracking a Standing Agent. purge=true additionally stops+disables the service and deletes its files from the Node.",
-            self.agent_remove,obj({"name":s,"purge":{"type":"boolean"}},("name",)),False,False,confirmation="confirm",tags=("agent",),resource_type="agent",
-        ))
-
-    def agent_plan(self, name: str, host: str, repo: str, **options: Any) -> dict[str,Any]:
-        if host not in self.hosts: raise ActionError(f"unknown host {host!r}")
-        try:
-            init_system=_agents.detect_init_system(self.hosts[host])
-            return _agents.render(name,repo=repo,init_system=init_system,**{k:v for k,v in options.items() if v is not None})
-        except AgentError as error: raise ActionError(str(error)) from error
-
-    def agent_setup(self, actor: str, name: str, host: str, repo: str, force: bool = False, enable: bool = False,
-                     start: bool = False, **options: Any) -> dict[str,Any]:
-        if host not in self.hosts: raise ActionError(f"unknown host {host!r}")
-        host_item=self.hosts[host]
-        try:
-            init_system=_agents.detect_init_system(host_item)
-            rendered=_agents.render(name,repo=repo,init_system=init_system,**{k:v for k,v in options.items() if v is not None})
-            deployed=_agents.deploy(host_item,rendered,force=force)
-        except AgentError as error: raise ActionError(str(error)) from error
-        transport=transport_for(host_item)
-        if enable and init_system=="systemd":
-            result=transport.run(["systemctl","enable",deployed["unit_name"]],timeout=15)
-            if not result.ok: raise ActionError(f"systemctl enable failed on {host}: {result.stderr.strip()}")
-        entry=self.agents.record(name,host=host,unit_name=deployed["unit_name"],repo=repo,runtime=rendered["runtime"],
-            model=options.get("model") or "opus",effort=options.get("effort") or "medium",state_dir=rendered["state_dir"],
-            run_script_path=rendered["run_script_path"],prompt_path=rendered["prompt_path"],unit_path=rendered["unit_path"],created_by=actor)
-        start_result=None
-        if start:
-            outcome=self.run("service.start",actor=actor,host=host,service=deployed["unit_name"])
-            start_result=outcome.compact()
-            if not outcome.ok: raise ActionError(f"agent {name!r} was configured but failed to start: {outcome.error.message if outcome.error else 'unknown error'}")
-        return {**deployed,"enabled":enable,"started":bool(start),"start_result":start_result,"agent":entry}
-
-    def agent_list(self, host: str | None = None) -> dict[str,Any]: return {"agents":self.agents.list(host=host)}
-
-    def agent_inspect(self, name: str) -> dict[str,Any]:
-        try: entry=self.agents.get(name)
-        except AgentError as error: raise ActionError(str(error)) from error
-        try: status=self.core.service_status(entry["host"],entry["unit_name"])
-        except ActionError as error: status={"error":str(error)}
-        return {**entry,"service_status":status}
-
-    def agent_logs(self, name: str, lines: int = 100) -> dict[str,Any]:
-        try: entry=self.agents.get(name)
-        except AgentError as error: raise ActionError(str(error)) from error
-        return self.core.logs_read(entry["host"],entry["unit_name"],lines)
-
-    def agent_remove(self, actor: str, name: str, purge: bool = False) -> dict[str,Any]:
-        try: entry=self.agents.get(name)
-        except AgentError as error: raise ActionError(str(error)) from error
-        purged=None
-        if purge:
-            host_item=self.hosts.get(entry["host"])
-            if host_item is None: raise ActionError(f"host {entry['host']!r} is no longer configured; cannot purge remote files")
-            transport=transport_for(host_item)
-            transport.run(["systemctl","disable","--now",entry["unit_name"]],timeout=30)
-            remove=transport.run(["rm","-f",entry["run_script_path"],entry["unit_path"]],timeout=15)
-            purged={"stopped_and_disabled":True,"files_removed":remove.ok}
-            transport.run(["systemctl","daemon-reload"],timeout=15)
-        try: removed=self.agents.remove(name)
-        except AgentError as error: raise ActionError(str(error)) from error
-        return {"removed":removed,"purged":purged}
 
     def node_list(self) -> dict[str, Any]: return {"nodes": self.nodes.list()}
 
@@ -408,17 +309,7 @@ class APX:
 
     def _build_auth_manager(self) -> AuthManager:
         auth_config=self.config.get("auth",{})
-        manager=AuthManager(auth_config,self.actors)
-        openpower_config=auth_config.get("openpower")
-        if openpower_config and openpower_config.get("enabled",True):
-            from .auth_openpower import OpenPowerAuthProvider
-            provider=OpenPowerAuthProvider(
-                openpower_config["endpoint"],openpower_config.get("shared_secret_env","OPENPOWER_SHARED_SECRET"),
-                issuer=openpower_config.get("issuer","openpower.one"),audience=openpower_config.get("audience","axp"),
-                allow_offline=manager.allow_local_fallback,
-            )
-            manager.register("openpower",provider)
-        return manager
+        return AuthManager(auth_config,self.actors)
 
     def _register_operational_actions(self) -> None:
         obj=lambda properties,required=():{"type":"object","properties":properties,"required":list(required),"additionalProperties":False}; string={"type":"string"}
@@ -488,12 +379,12 @@ class APX:
         a(R("auth.authenticate","Authenticate credentials via a configured provider (local/openpower/...), returning an AuthContext",self.auth_authenticate,obj({"method":s,"credentials":{"type":"object"}},("method",))))
         a(R("identity.inspect","Inspect a Principal (Actor) and its profile",self.identity_inspect,obj({"subject":s},("subject",))))
         a(R("identity.list","List all declared Principals",self.identity_list,obj({})))
-        a(R("identity.link","Link a local identity to an OpenPower subject id (metadata only, never a password/token)",self.identity_link,obj({"subject":s,"openpower_subject":s,"linked_by":s},("subject","openpower_subject")),False,False))
-        a(R("identity.unlink","Remove a local identity's OpenPower link",self.identity_unlink,obj({"subject":s,"unlinked_by":s},("subject",)),False,False))
+        a(R("identity.link","Link a local identity to an external subject id (metadata only, never a password/token)",self.identity_link,obj({"subject":s,"openpower_subject":s,"external_subject":s,"linked_by":s},("subject",)),False,False))
+        a(R("identity.unlink","Remove a local identity's external link",self.identity_unlink,obj({"subject":s,"unlinked_by":s},("subject",)),False,False))
         a(R("identity.enrollment.request","Request an identity for an agent/machine (subject to the configured enrollment mode)",self.identity_enrollment_request,obj({"machine_id":s,"runtime":s,"principal":s,"requested_roles":arr,"requested_scopes":arr,"device_fingerprint":s},("machine_id","runtime")),False,False))
         a(R("identity.enrollment.status","Inspect an enrollment request",self.identity_enrollment_status,obj({"request_id":s},("request_id",))))
         a(R("identity.enrollment.cancel","Cancel a pending enrollment request",self.identity_enrollment_cancel,obj({"request_id":s,"cancelled_by":s},("request_id",)),False,False))
-        a(R("identity.enrollment.approve","Approve a pending enrollment request",self.identity_enrollment_approve,obj({"request_id":s,"approved_by":s,"openpower_ref":s},("request_id",)),False,False))
+        a(R("identity.enrollment.approve","Approve a pending enrollment request",self.identity_enrollment_approve,obj({"request_id":s,"approved_by":s,"openpower_ref":s,"external_ref":s},("request_id",)),False,False))
         a(R("identity.enrollment.deny","Deny a pending enrollment request",self.identity_enrollment_deny,obj({"request_id":s,"denied_by":s},("request_id",)),False,False))
         a(R("identity.pairing.create","Create a one-time device pairing code (short-lived, process-lifetime only)",self.pairing_create,obj({"ttl_seconds":{"type":"integer"}})))
         a(R("identity.pairing.claim","Claim a one-time device pairing code",self.pairing_claim,obj({"code":s,"claimant":s},("code","claimant")),False,False))
@@ -514,8 +405,8 @@ class APX:
         """Spawns the MCP server, registers each of its tools as a normal apx Action
         namespaced `<connection.id>.<tool>`, and returns a connection_health-shaped
         result -- shared by static `[[connections]]` config (_load_connections) and
-        `environment.ingest` (dynamically discovered connections), so a tool
-        registered either way behaves identically to every caller."""
+        dynamically discovered connections, so a tool registered either way behaves
+        identically to every caller."""
         from .adapters.mcp import MCPStdioAdapter
         try:
             adapter=MCPStdioAdapter(list(connection.options.get("command",[])),timeout=int(connection.options.get("timeout",30)))
@@ -532,48 +423,6 @@ class APX:
         except Exception as error: result={"id":connection.id,"adapter":connection.adapter,"ok":False,"error":str(error)}
         self.connection_health.append(result)
         return result
-
-    def _register_environment_ingest_actions(self) -> None:
-        obj=lambda properties,required=():{"type":"object","properties":properties,"required":list(required),"additionalProperties":False}
-        s={"type":"string"}
-        self.actions.register(RegisteredAction(
-            "environment.sources","Information: known dotfile/config sources apx can ingest MCP servers from, whether each is enabled, and what's actually found on disk -- read-only, never spawns anything",
-            self.environment_sources,obj({})))
-        self.actions.register(RegisteredAction(
-            "environment.ingest","Import an enabled source's already-configured MCP servers as live apx Connections/Actions -- spawns each server as a subprocess to introspect its tools",
-            self.environment_ingest,obj({"source":s},("source",)),False,False,confirmation="confirm",resource_type="connection"))
-
-    def environment_sources(self) -> dict[str,Any]:
-        ingest_config=self.config.get("ingest",{})
-        results=[]
-        for source_id,source in _environment_ingest.SOURCES.items():
-            enabled=bool(ingest_config.get(source_id,{}).get("enabled",False))
-            already_ingested=sorted(c.id for c in self.connections if c.id.startswith(f"{source_id}."))
-            results.append({"enabled":enabled,"verified":source.verified,"label":source.label,"already_ingested":already_ingested,**source.probe()})
-        for source_id in _environment_ingest.PLANNED_SOURCES:
-            results.append({"id":source_id,"label":source_id.replace("_"," ").title(),"verified":False,"enabled":False,"status":"planned","found":None})
-        return {"sources":results}
-
-    def environment_ingest(self, source: str) -> dict[str,Any]:
-        if source in _environment_ingest.PLANNED_SOURCES:
-            raise ActionError(f"{source!r} has no verified ingestion support yet (see environment.sources)")
-        ingest_source=_environment_ingest.SOURCES.get(source)
-        if ingest_source is None:
-            raise ActionError(f"unknown ingest source {source!r}; known: {', '.join(sorted(_environment_ingest.SOURCES))}, planned: {', '.join(_environment_ingest.PLANNED_SOURCES)}")
-        if not self.config.get("ingest",{}).get(source,{}).get("enabled",False):
-            raise ActionError(f"ingest source {source!r} is disabled; enable it first with [ingest.{source}]\\nenabled = true in apx.toml")
-        servers=ingest_source.mcp_servers()
-        if not servers: return {"source":source,"ingested":[],"message":"no MCP servers found (or the source's config could not be parsed)"}
-        results=[]
-        for name,server_config in servers.items():
-            connection_id=f"{source}.{name}"
-            if any(c.id==connection_id for c in self.connections):
-                results.append({"name":name,"connection":connection_id,"skipped":"already ingested"}); continue
-            connection=Connection(connection_id,"mcp_stdio",None,None,{"command":[server_config["command"],*server_config["args"]]})
-            self.connections.append(connection)
-            outcome=self._register_mcp_stdio_connection(connection)
-            results.append({"name":name,"connection":connection_id,**outcome})
-        return {"source":source,"ingested":results}
 
     def run(self, action: str, /, *, actor: str | None = None, target: dict[str, Any] | None = None, auth_context: dict[str, Any] | None = None, confirmation: dict[str, Any] | None = None, **inputs: Any) -> ActionResult:
         derived={key:inputs[key] for key in ("host","service","project","source_host","destination_host","id") if key in inputs and inputs[key] is not None}
@@ -859,8 +708,6 @@ class APX:
                 raw,execution=self.execution.run(replace(definition,handler=lambda _name=definition.name,**values:self._execute_blueprint(_name,actor,values)),effective_input)
             elif "grant" in definition.tags:
                 raw,execution=self.execution.run(replace(definition,handler=lambda _name=definition.name,**values:self._execute_grant(_name,actor,values)),effective_input)
-            elif "agent" in definition.tags:
-                raw,execution=self.execution.run(replace(definition,handler=lambda _name=definition.name,**values:self._execute_agent(_name,actor,values)),effective_input)
             else: raw,execution = self.execution.run(definition,effective_input)
             # secret.reveal is the one sanctioned path for a raw value; policy already gated it above.
             data = raw if request.action=="secret.reveal" else self.credentials.redact(raw)
@@ -1096,9 +943,11 @@ class APX:
     def identity_list(self) -> dict[str, Any]:
         return {"identities": [p.to_dict() for p in self.actors.list()]}
 
-    def identity_link(self, subject: str, openpower_subject: str, linked_by: str | None = None) -> dict[str, Any]:
+    def identity_link(self, subject: str, openpower_subject: str | None = None, external_subject: str | None = None, linked_by: str | None = None) -> dict[str, Any]:
+        target = openpower_subject or external_subject
+        if not target: raise ActionError("external_subject is required")
         if self.actors.get(subject) is None: raise ActionError(f"unknown identity {subject!r}; declare it under [[actors]] first")
-        self.identity_links.link(subject, openpower_subject, self.actors)
+        self.identity_links.link(subject, target, self.actors)
         return self.actors.get(subject).to_dict()
 
     def identity_unlink(self, subject: str, unlinked_by: str | None = None) -> dict[str, Any]:
@@ -1126,8 +975,9 @@ class APX:
         try: return self.enrollment.cancel(request_id, resolved_by=cancelled_by)
         except EnrollmentError as error: raise ActionError(str(error)) from error
 
-    def identity_enrollment_approve(self, request_id: str, approved_by: str | None = None, openpower_ref: str | None = None) -> dict[str, Any]:
-        try: record = self.enrollment.approve(request_id, resolved_by=approved_by, openpower_ref=openpower_ref)
+    def identity_enrollment_approve(self, request_id: str, approved_by: str | None = None, openpower_ref: str | None = None, external_ref: str | None = None) -> dict[str, Any]:
+        ref = openpower_ref or external_ref
+        try: record = self.enrollment.approve(request_id, resolved_by=approved_by, openpower_ref=ref)
         except EnrollmentError as error: raise ActionError(str(error)) from error
         self.emit(Event("identity.enrollment_approved","apx",{"request":request_id},{"resolved_by":approved_by}))
         return record

@@ -24,7 +24,7 @@ class CryptoAndDaemonTests(unittest.TestCase):
         raw = {
             "action": "host.status",
             "provider": "local",
-            "actor": "human:ethan",
+            "actor": "human:operator",
             "status": "completed",
             "result": {"reachable": True},
             "timestamp": "2026-08-15T23:00:00Z"

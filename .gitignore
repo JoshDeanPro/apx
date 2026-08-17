@@ -28,7 +28,6 @@ apx.toml
 # Local/private APX state
 .env
 .env.*
-!.env.example
 *.pem
 *.key
 *.p12
@@ -46,8 +45,6 @@ Pasted*
 *transcript*
 *chat*
 *artifact*
-*.*
-.*
 .gemini*
 .cursor*
 .vscode*

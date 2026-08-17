@@ -277,7 +277,7 @@ class SecurityTests(unittest.TestCase):
 class ManifestSecurityTests(unittest.TestCase):
     def test_manifest_rejects_secret_shaped_fields(self):
         provider = ActionProvider("leaky.local", "Leaky Provider", provenance="local_component",
-                                   metadata={"api_key": "sk-shouldnotbehere"})
+                                   metadata={"api_key": "secret-test-token"})
         errors = validate_provider(provider)
         self.assertTrue(any("secret" in error for error in errors))
 

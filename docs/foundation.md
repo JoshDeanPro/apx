@@ -14,11 +14,11 @@ APX does not require Pydantic, a CLI framework, terminal rendering, `cryptograph
 
 Required packages must be mature, actively maintained, portable, security-conscious, broadly adopted, narrowly scoped, and remove meaningful custom or security-sensitive code. Packages are not added for string handling, JSON encoding, timestamps, UUIDs, basic subprocess calls, retries, or filesystem walking.
 
-Production installation also applies OpenPower’s reviewed `foundation.lock` constraints to transitive dependencies. Release wheels and the constraint file are described by SHA-256 in `foundation-manifest.json`; downloads require verified HTTPS.
+Production installation applies reviewed constraints to transitive dependencies. Release wheels and constraint files are described by SHA-256 in manifests; downloads require verified HTTPS.
 
 This follows the isolation guidance in the [Python Packaging specification for externally managed environments](https://packaging.python.org/en/latest/specifications/externally-managed-environments/) and borrows the isolated-tool pattern documented by [`uv tool install`](https://docs.astral.sh/uv/guides/tools/). APX does not require uv at runtime. The installer uses the standard library `venv` available on the host, keeping bootstrap auditable and avoiding a second package manager when it is unnecessary.
 
-The [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) is deliberately not an APX Core dependency: APX’s existing stdio MCP adapter is small and protocol-scoped. Applications that need the full MCP framework may install it separately. OpenPower uses the native managed-install pattern described by [ Code setup](https://docs..com/en/docs/-code/setup): the user invokes one stable command while runtime details remain isolated.
+The [official MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) is deliberately not an APX Core dependency: APX’s existing stdio MCP adapter is small and protocol-scoped. Applications that need the full MCP framework may install it separately. Modern isolated-install patterns allow users to invoke stable commands while runtime details remain isolated.
 
 ## System capabilities
 
@@ -32,10 +32,10 @@ Docker, Podman, Node.js, databases, web servers, Kubernetes, Terraform, Ansible,
 
 ## Shared primitives
 
-- `apx.http.HTTPClient`: verified HTTPS, pooled connections, bounded responses, safe redirects, environment proxies, a non-secret `OpenPower/<version> APX/<version>` user agent, and retries only for safe/idempotent calls.
+- `apx.http.HTTPClient`: verified HTTPS, pooled connections, bounded responses, safe redirects, environment proxies, a standard `APX/<version>` user agent, and retries only for safe/idempotent calls.
 - `apx.process.run`: argument arrays, `shell=False`, timeout, bounded stdout/stderr, working directory, controlled environment injection, and structured results.
 - `apx.files`: normalized paths, bounded reads, advisory locks, `fsync`, permission control, and atomic replace.
 - `apx.observability`: human or JSON logs containing request/action/provider/status/timing identifiers but no action payloads or secrets.
-- `apx.foundation`: one capability and health source consumed by doctor and clients.
+- `apx.foundation`: one capability and health source consumed by clients.
 
-SQLite remains available in the Python standard library but this pass does not migrate existing small JSON overlays. Atomic locked writes solve their current durability requirement without introducing a database or migration burden.
+SQLite remains available in the Python standard library. Atomic locked writes solve durability requirements without introducing an external database or migration burden.

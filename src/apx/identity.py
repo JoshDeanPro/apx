@@ -36,8 +36,8 @@ class AgentProfile:
     roles: tuple[str, ...] = ()
     groups: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()
-    # Optional link to an OpenPower-side identity (e.g. "agent:<uuid>"). Metadata only --
-    # never a password/token. The AI runtime (/Codex/...) and this identity are
+    # Optional link to an external identity (e.g. "agent:<uuid>"). Metadata only --
+    # never a password/token. The agent runtime and this identity are
     # different concepts; changing runtime doesn't require changing this.
     openpower_identity: str | None = None
 

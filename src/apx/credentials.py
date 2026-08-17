@@ -38,7 +38,7 @@ class CredentialReference:
     # The actor (human, almost always) accountable for this credential -- who it
     # belongs to, not who may currently use it (that's Grant/RolePolicy scoping on
     # the `id` target dimension, see cloud.py's _grant_extra_allow). An actor id
-    # like "human:ethan", not a raw email -- the actor's own profile is the single
+    # like "human:operator", not a raw email -- the actor's own profile is the single
     # place identity details (email, display name) belong.
     owner: str | None = None
 
@@ -137,17 +137,10 @@ class EnvironmentBackend:
 
 
 class KeychainBackend:
-    """macOS Keychain, via the stdlib-only `security` CLI (no new dependency). Darwin only.
-
-    Service name is "localcloud", not "apx" -- apx was renamed from localcloud, but
-    existing Keychain entries were never migrated (they were created under the old
-    name and nothing has re-added them under the new one). Changing this to "apx"
-    would silently break every already-configured credential rather than fix
-    anything; match the value actually on disk (and the one apx.toml's own comment
-    already documents) instead of the one that matches the current package name."""
+    """macOS Keychain, via the stdlib-only `security` CLI (no new dependency). Darwin only."""
     name="keychain"
     capabilities=frozenset({"get","set","health"})
-    service="localcloud"
+    service="apx"
 
     def __init__(self, run: Callable[..., subprocess.CompletedProcess] = subprocess.run):
         if sys.platform!="darwin": raise SecretBackendError("the keychain backend is only available on macOS")
@@ -185,7 +178,7 @@ class VaultwardenBackend:
     through the official `bw` CLI. APX never implements Bitwarden's client-side crypto itself, and
     never sees a master password: the human runs `bw login`/`bw unlock` themselves, outside APX, and
     hands this backend an already-unlocked session token via an environment variable. This is
-    deliberate -- OpenPower/APX does not host or store user secrets centrally; the vault, its data,
+    deliberate -- APX does not host or store user secrets centrally; the vault, its data,
     and the only key that can unlock it stay entirely on the user's own side.
 
     `ref.reference` is the vault item's name/search term (what `bw get` takes), resolved against
@@ -386,7 +379,7 @@ class RotationWorkflow:
         return {"ok":True,"stage":"complete","previous":previous,"current":candidate}
 
 
-ACTOR_CREDENTIAL_TYPES=("opaque_bearer","public_key","mtls","hardware","openpower_issued","local")
+ACTOR_CREDENTIAL_TYPES=("opaque_bearer","public_key","mtls","hardware","token_issued","openpower_issued","local")
 ACTOR_CREDENTIAL_STATES=("active","rotating","revoked","expired","disabled")
 
 

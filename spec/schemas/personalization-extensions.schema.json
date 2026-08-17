@@ -1,6 +1,6 @@
 {
   "$schema":"https://json-schema.org/draft/2020-12/schema",
-  "$id":"https://openpower.dev/apx/spec/0.1/personalization-extensions.schema.json",
+  "$id":"https://apx.dev/spec/0.1/personalization-extensions.schema.json",
   "$defs":{
     "content_variant":{"type":"object","required":["id","labels","content"],"properties":{"id":{"type":"string"},"labels":{"type":"array","items":{"type":"string"}},"content":{},"actions":{"type":"array","items":{"type":"string"}}},"additionalProperties":false},
     "offer":{"type":"object","required":["id","provider","title","categories"],"properties":{"id":{"type":"string"},"provider":{"type":"string"},"title":{"type":"string"},"categories":{"type":"array","items":{"type":"string"}},"description":{"type":"string"},"sponsored":{"type":"boolean"},"compensation":{"type":["object","null"]},"actions":{"type":"array","items":{"type":"string"}},"terms":{"type":"object"}},"additionalProperties":false},

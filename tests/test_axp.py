@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 from apx import ActionRequest, ActionResult, Context, Event, APX, Resource, StructuredError
 from apx.actions import RegisteredAction
-from apx.doctor import diagnose
 from apx.events import EventRouter
 from apx.integrations.discord_webhook import DiscordWebhookPlugin
 from apx.plugins import PluginAPI, PluginManager, PluginMetadata
@@ -75,23 +74,14 @@ class AXPTests(unittest.TestCase):
             self.assertTrue(any(item.id=="python" for item in cloud.capabilities("test")))
             self.assertEqual(cloud.action_definitions()[0].to_dict()["type"],"action.definition")
 
-    def test_init_and_doctor(self):
+    def test_init_creates_valid_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/"apx.toml"
             result=initialize(path,interactive=False)
-            self.assertTrue(path.exists()); self.assertEqual(result["local"]["os"],platform.system())
-            report=diagnose(path)
-            self.assertTrue(report["config"]["ok"]); self.assertTrue(report["hosts"][0]["reachable"])
-            self.assertTrue(report["mcp"]["available"])
-
-    def test_doctor_reports_unhealthy_optional_plugin(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path=config(Path(directory))
-            with path.open("a") as stream: stream.write('\n[credentials.discord_webhook]\nsource="environment"\nreference="APX_TEST_MISSING_WEBHOOK"\n[plugins.discord_webhook]\nenabled=true\ncredential="discord_webhook"\n')
-            with patch.dict("os.environ",{},clear=False):
-                report=diagnose(path)
-            self.assertFalse(report["ok"])
-            self.assertEqual(report["credentials"][0]["id"],"discord_webhook")
+            self.assertTrue(path.exists())
+            self.assertEqual(result["local"]["os"],platform.system())
+            cloud=APX(path,plugins=False)
+            self.assertGreater(len(cloud.resources()),0)
 
     def test_plugin_metadata_reports_missing_credential_reference(self):
         with tempfile.TemporaryDirectory() as directory:

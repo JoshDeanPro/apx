@@ -56,13 +56,14 @@ class HTTPServerLiveTests(unittest.TestCase):
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+        self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
     def tearDown(self):
         self.server.shutdown(); self.server.server_close(); self.thread.join(timeout=5)
         self.temp.cleanup()
 
     def _get(self, path):
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=5) as response:
+        with self.opener.open(f"http://127.0.0.1:{self.port}{path}", timeout=5) as response:
             return response.status, json.loads(response.read())
 
     def _post(self, path, payload):
@@ -70,7 +71,7 @@ class HTTPServerLiveTests(unittest.TestCase):
         request = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=data,
                                           headers={"Content-Type": "application/apx+json"}, method="POST")
         try:
-            with urllib.request.urlopen(request, timeout=5) as response:
+            with self.opener.open(request, timeout=5) as response:
                 return response.status, json.loads(response.read())
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read())

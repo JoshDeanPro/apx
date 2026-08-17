@@ -155,12 +155,12 @@ class SecretsManagerTests(unittest.TestCase):
 
     def test_owner_is_surfaced_by_get_and_health_but_not_required(self):
         registry=CredentialRegistry.from_config({
-            "owned":{"source":"environment","reference":"APX_TEST_TOKEN","owner":"human:ethan"},
+            "owned":{"source":"environment","reference":"APX_TEST_TOKEN","owner":"human:operator"},
             "unowned":{"source":"environment","reference":"APX_TEST_TOKEN"},
         })
         manager=SecretsManager(registry)
-        self.assertEqual(manager.get("owned")["owner"],"human:ethan")
-        self.assertEqual(manager.health("owned")["owner"],"human:ethan")
+        self.assertEqual(manager.get("owned")["owner"],"human:operator")
+        self.assertEqual(manager.health("owned")["owner"],"human:operator")
         self.assertIsNone(manager.get("unowned")["owner"])
 
 
@@ -204,10 +204,10 @@ class SecretActionsThroughAPXTests(unittest.TestCase):
 source="environment"
 reference="APX_TEST_TOKEN"
 [[actors]]
-id="agent::mac"
+id="agent:worker:node-1"
 roles=["developer"]
 [[actors]]
-id="human:ethan"
+id="human:operator"
 roles=["admin"]
 [[roles]]
 name="developer"
@@ -220,9 +220,9 @@ action="*"
 '''
         cloud=APX(config(Path(self.temp.name),extra),plugins=False)
         with patch.dict("os.environ",{"APX_TEST_TOKEN":"super-secret"}):
-            denied=cloud.run("secret.reveal",actor="agent::mac",id="token")
+            denied=cloud.run("secret.reveal",actor="agent:worker:node-1",id="token")
             self.assertFalse(denied.ok); self.assertEqual(denied.error.code,"permission_denied")
-            allowed=cloud.run("secret.reveal",actor="human:ethan",id="token")
+            allowed=cloud.run("secret.reveal",actor="human:operator",id="token")
             self.assertTrue(allowed.ok); self.assertEqual(allowed.result["value"],"super-secret")
 
     def test_secret_get_is_always_masked_regardless_of_actor(self):

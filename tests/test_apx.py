@@ -38,17 +38,17 @@ class APXTests(unittest.TestCase):
         self.assertIn("confirm=true",server.dispatch(request)["error"]["message"])
 
     def test_actor_threads_identically_through_python_and_mcp(self):
-        python_result=self.cloud.run("actor.whoami",subject="agent::mac")
-        server=MCPServer(self.cloud,actor="agent::mac")
-        request={"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"actor_whoami","arguments":{"subject":"agent::mac"}}}
+        python_result=self.cloud.run("actor.whoami",subject="agent:worker:node-1")
+        server=MCPServer(self.cloud,actor="agent:worker:node-1")
+        request={"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"actor_whoami","arguments":{"subject":"agent:worker:node-1"}}}
         mcp_result=server.dispatch(request)["result"]["structuredContent"]
         self.assertEqual(python_result.result["actor"],mcp_result["result"]["actor"])
-        self.assertEqual(python_result.result["actor"],"agent::mac")
+        self.assertEqual(python_result.result["actor"],"agent:worker:node-1")
 
     def test_unconfigured_default_actor_is_open_for_every_caller(self):
         # No [[roles]] declared -- CLI, Python, and MCP must all remain unrestricted.
         self.assertTrue(self.cloud.run("host.info",host="test").ok)
-        self.assertTrue(self.cloud.run("host.info",host="test",actor="agent::anything").ok)
+        self.assertTrue(self.cloud.run("host.info",host="test",actor="agent:worker:anything").ok)
 
     def test_unexpected_input_field_fails_cleanly_instead_of_crashing(self):
         # A mismatched/misspelled action input is a caller mistake, not a process crash --

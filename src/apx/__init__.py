@@ -1,10 +1,5 @@
 # SPDX-License-Identifier: MPL-2.0
-"""OpenPower APX: the protocol and action fabric layer.
-
-LocalCloud is a separate OpenPower runtime built on APX.  Existing imports are
-kept source-compatible through the 0.8 transition while product/runtime UX
-moves under ``openpower.localcloud``.
-"""
+"""APX: Universal Action Protocol & Capability Fabric."""
 
 from .cloud import APX
 from .axp import ActionDefinition, ActionReceipt, ActionRequest, ActionResult, ActorDescriptor, Capability, Connection, Context, CredentialHandle, Event, PreparedAction, Resource, ResourceRelationship, SecretInput, StructuredError, VersionInfo

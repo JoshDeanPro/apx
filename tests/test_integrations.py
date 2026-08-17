@@ -113,7 +113,7 @@ class IntegrationTests(unittest.TestCase):
 
     def test_tailscale_discovery(self):
         info={"capabilities":{"tailscale":{"available":True}}}
-        payload={"BackendState":"Running","Self":{"HostName":"mac","DNSName":"mac.tail.test.","TailscaleIPs":["100.64.0.1"]},"Peer":{"id":{"ID":"id","HostName":"home","DNSName":"home.tail.test.","TailscaleIPs":["100.64.0.2"],"Online":True}}}
+        payload={"BackendState":"Running","Self":{"HostName":"mac","DNSName":"mac.tail.test.","TailscaleIPs":["198.51.100.1"]},"Peer":{"id":{"ID":"id","HostName":"home","DNSName":"home.tail.test.","TailscaleIPs":["198.51.100.2"],"Online":True}}}
         transport=FakeTransport(["1.80.0\n",json.dumps(payload)])
         with patch("apx.system.inspect_host",return_value=info),patch("apx.system.transport_for",return_value=transport):
             result=tailscale_status(__import__("apx").Host("mac","local"))
@@ -135,14 +135,13 @@ class IntegrationTests(unittest.TestCase):
         launchd=manager_for({"capabilities":{"systemd":{"available":False},"launchd":{"available":True}}})
         self.assertIn("restart",systemd.mutations); self.assertIn("restart",launchd.mutations)
 
-    def test_plugins_available_not_configured_and_doctor_summary(self):
+    def test_plugins_available_not_configured(self):
         with tempfile.TemporaryDirectory() as directory:
             cloud=APX(write_config(Path(directory)))
             inspected=cloud.plugin_manager.inspect("cloudflare")
             self.assertEqual(inspected["health"]["status"],"available_not_configured")
-            from apx.doctor import diagnose
-            report=diagnose(cloud.config_path)
-            self.assertTrue(any(item["name"]=="porkbun" and not item["configured"] for item in report["integrations"]))
+            porkbun=cloud.plugin_manager.inspect("porkbun")
+            self.assertEqual(porkbun["health"]["status"],"available_not_configured")
 
     def test_provider_action_is_shared_by_python_cli_and_mcp(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{"LC_CF_TOKEN":"fake-token"}):

@@ -50,11 +50,10 @@ class CloudProviderView:
 
 
 # Browser callers only: a page served from these origins may fetch this loopback-bound
-# server directly from client-side JS (e.g. the openpower.dev dashboard reading a user's
-# own local apx instance). This does not relax the server's actual authorization -- every
-# action still goes through the same PolicyEngine; CORS only decides which page origins a
+# server directly from client-side JS. This does not relax the server's actual authorization --
+# every action still goes through the same PolicyEngine; CORS only decides which page origins a
 # browser will let read the response.
-DEFAULT_ALLOWED_ORIGINS = ("https://openpower.dev", "http://localhost:3000", "http://127.0.0.1:3000")
+DEFAULT_ALLOWED_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8080", "http://127.0.0.1:8080")
 
 
 def make_handler(adapter: HTTPProviderAdapter, *, allowed_origins: tuple[str, ...] = DEFAULT_ALLOWED_ORIGINS) -> type[BaseHTTPRequestHandler]:

@@ -26,7 +26,7 @@ class FoundationComponent:
 
 
 COMPONENTS=(
-    FoundationComponent("python","foundation","runtime.python","Runs the managed APX/OpenPower environment.",( "python3",)),
+    FoundationComponent("python","foundation","runtime.python","Runs the APX Python runtime environment.",( "python3",)),
     FoundationComponent("tls","foundation","transport.https","Authenticates remote providers and update downloads."),
     FoundationComponent("git","recommended","project.version_control","Project inspection, plugins, rollback, and generated component history.",( "git",)),
     FoundationComponent("ssh","recommended","transport.ssh","Secure cross-machine APX transport using existing OpenSSH configuration.",( "ssh","ssh-agent")),
