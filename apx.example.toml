@@ -1,0 +1,174 @@
+version = 1
+
+[credentials.discord_webhook]
+provider = "discord"
+source = "environment"
+reference = "APX_DISCORD_WEBHOOK_URL"
+description = "Optional outbound Discord notification webhook."
+groups = ["notifications"]
+tags = ["webhook"]
+
+# An existing stdio MCP server can be adapted into namespaced AXP actions.
+# [[connections]]
+# id = "existing_tools"
+# adapter = "mcp_stdio"
+# command = ["python3", "/absolute/path/server.py"]
+
+[[hosts]]
+name = "workstation"
+transport = "local"
+groups = ["development"]
+tags = ["operator"]
+
+[[hosts]]
+name = "server"
+transport = "ssh"
+target = "my-server"
+groups = ["production"]
+
+# Hosts may have ordered connection methods. Existing transport/target remains
+# compatible and is used when this list is absent.
+# [[hosts.connections]]
+# id = "server-lan"
+# adapter = "ssh"
+# target = "server-lan"
+# preferred = true
+# [[hosts.connections]]
+# id = "server-tailnet"
+# adapter = "tailscale_ssh"
+# target = "server.example-tailnet.ts.net"
+
+[[projects]]
+name = "example"
+description = "An optional relationship map layered on discovered facts."
+
+[[projects.locations]]
+host = "workstation"
+path = "/path/to/source"
+role = "development"
+
+[projects.context]
+preferred_technologies = ["Use what the project already uses."]
+avoid_technologies = ["Do not add infrastructure without a demonstrated need."]
+conventions = ["Keep operational actions explicit and inspectable."]
+architecture = ["Describe stable architectural facts here."]
+commands = {test = "python -m pytest"}
+relationships = [{host = "workstation", role = "development"}]
+deployment = {method = "existing project scripts", preference = "verify after deployment"}
+
+# Databases are resources APX can understand; APX does not need
+# one itself. Passwords remain credential references.
+# [[databases]]
+# id = "example-db"
+# engine = "postgres"
+# host = "db.example.internal"
+# port = 5432
+# database = "example"
+# credential = "example-db-password"
+# provider = "supabase"
+# groups = ["production", "database", "example"]
+
+# Provider integrations remain available but inactive until explicitly enabled.
+# [plugins.cloudflare]
+# enabled = true
+# credential = "cloudflare-token"
+# groups = ["domains", "production"]
+
+# Optional event-to-provider integration. The secret stays in the named
+# environment variable and never appears in this file.
+[plugins.discord_webhook]
+enabled = false
+credential = "discord_webhook"
+events = ["project.deployed", "backup.completed", "service.failed"]
+
+[[relationships]]
+source = "project:example"
+relation = "developed_on"
+target = "host:workstation"
+
+# ---------------------------------------------------------------------------
+# AXP identity, permissions, and state are entirely optional. Until you add
+# any [[roles]], every action is allowed for every actor -- identical to
+# today's behavior. Add [[actors]]/[[roles]] once you want real enforcement.
+# ---------------------------------------------------------------------------
+
+# The identity used when no --actor is given (CLI/Python/MCP).
+# default_actor = "human:operator"
+
+# [[actors]]
+# id = "human:operator"
+# kind = "human"
+# roles = ["admin"]
+
+# Two agents of the same runtime on different hosts are different identities
+# and can be granted different capabilities.
+# [[actors]]
+# id = "agent:worker:workstation"
+# kind = "agent"
+# runtime = "generic"
+# host = "workstation"
+# projects = ["example"]
+# roles = ["developer"]
+
+# [[actors]]
+# id = "agent:runner:server"
+# kind = "agent"
+# runtime = "generic"
+# host = "server"
+# projects = ["example"]
+# roles = ["developer", "deployer"]
+
+# Roles are capability/RBAC-style: scoped allow rules, with explicit deny
+# always taking precedence. Scope dimensions: project, host, group, tag,
+# state. A rule with no scope matches any target for that action.
+# [[roles]]
+# name = "admin"
+# [[roles.allow]]
+# action = "*"
+
+# [[roles]]
+# name = "developer"
+# [[roles.allow]]
+# action = "project.inspect"
+# [[roles.allow]]
+# action = "service.status"
+# [[roles.allow]]
+# action = "logs.read"
+
+# [[roles]]
+# name = "deployer"
+# [[roles.allow]]
+# action = "service.restart"
+# scope = { project = ["example"] }
+# [[roles.deny]]
+# action = "host.shutdown"
+
+# Policy can flex with a system/security state. State names are free-form;
+# "incident" and "lockdown" get dedicated security.* lifecycle events.
+# [state]
+# default = "normal"
+# [[roles.allow]]
+# action = "logs.read"
+# scope = { state = ["incident", "lockdown"] }
+
+# Secrets: the environment backend (above, via [credentials.*]) always works.
+# macOS Keychain and OpenBao are optional, off unless configured here.
+# [secrets.keychain]
+# [secrets.openbao]
+# base_url = "https://openbao.internal:8200"
+# token_env = "OPENBAO_TOKEN"
+# mount = "secret"
+
+# ---------------------------------------------------------------------------
+# Authentication is layered on top of, and separate from, the identity/policy
+# section above: authentication answers "who is this, really" (an AuthContext
+# describing HOW that was established); PolicyEngine above still alone decides
+# "what may they do." APX works fully offline with zero [auth] configuration --
+# every existing bare `actor="..."` call is already authenticated as
+# authentication_method="local_os" via the always-available local provider.
+# ---------------------------------------------------------------------------
+
+# [auth]
+# allow_local_fallback = true    # keep working if external auth is unreachable (default: true)
+# enrollment_mode = "manual"     # disabled | manual | trusted_device | automatic (default: manual)
+

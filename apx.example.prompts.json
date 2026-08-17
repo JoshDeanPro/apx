@@ -1,0 +1,64 @@
+{
+  "prompts": {
+    "prompt_universal_assistant": {
+      "id": "prompt_universal_assistant",
+      "title": "Universal Fabric Assistant",
+      "description": "Standard system instructions for APX capability routing and execution.",
+      "content": "You are connected to an APX-enabled environment. Use available actions, inspect resources, and adhere to capability boundaries.",
+      "scope": "shared",
+      "targets": [
+        "all"
+      ],
+      "tags": [
+        "system",
+        "default",
+        "fabric"
+      ]
+    },
+    "prompt_system_operator": {
+      "id": "prompt_system_operator",
+      "title": "System Diagnostics & Operations",
+      "description": "Operate and troubleshoot host hardware, services, network, and logs.",
+      "content": "Analyze node hardware, examine journal logs, check service statuses, and ensure operational health with minimal disruptive actions.",
+      "scope": "device",
+      "targets": [
+        "local"
+      ],
+      "tags": [
+        "operations",
+        "diagnostics",
+        "host"
+      ]
+    },
+    "prompt_code_reviewer": {
+      "id": "prompt_code_reviewer",
+      "title": "Autonomous Code Reviewer",
+      "description": "Examine git diffs, project blueprints, and compliance checks.",
+      "content": "Inspect discovered projects, verify blueprints, analyze code modifications for safety and correctness, and provide structured feedback.",
+      "scope": "agent",
+      "targets": [
+        "all"
+      ],
+      "tags": [
+        "code",
+        "review",
+        "quality"
+      ]
+    },
+    "prompt_cloud_operator": {
+      "id": "prompt_cloud_operator",
+      "title": "Cloud & Domain Infrastructure",
+      "description": "Manage DNS records, domains, SSL/TLS, and edge configurations.",
+      "content": "Use connected DNS and domain providers (e.g. Porkbun, Cloudflare) to inspect zones, manage records, and ensure correct routing.",
+      "scope": "shared",
+      "targets": [
+        "all"
+      ],
+      "tags": [
+        "cloud",
+        "dns",
+        "domains"
+      ]
+    }
+  }
+}

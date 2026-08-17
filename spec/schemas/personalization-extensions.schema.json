@@ -1,0 +1,12 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://apx.dev/spec/0.1/personalization-extensions.schema.json",
+  "$defs":{
+    "content_variant":{"type":"object","required":["id","labels","content"],"properties":{"id":{"type":"string"},"labels":{"type":"array","items":{"type":"string"}},"content":{},"actions":{"type":"array","items":{"type":"string"}}},"additionalProperties":false},
+    "offer":{"type":"object","required":["id","provider","title","categories"],"properties":{"id":{"type":"string"},"provider":{"type":"string"},"title":{"type":"string"},"categories":{"type":"array","items":{"type":"string"}},"description":{"type":"string"},"sponsored":{"type":"boolean"},"compensation":{"type":["object","null"]},"actions":{"type":"array","items":{"type":"string"}},"terms":{"type":"object"}},"additionalProperties":false},
+    "reward":{"type":"object","required":["id","provider","kind","value"],"properties":{"id":{"type":"string"},"provider":{"type":"string"},"kind":{"type":"string"},"value":{"type":"object"},"offer_id":{"type":["string","null"]},"terms":{"type":"object"},"expires_at":{"type":["string","null"],"format":"date-time"}},"additionalProperties":false},
+    "consent":{"type":"object","required":["subject","purposes","granted"],"properties":{"subject":{"type":"string"},"purposes":{"type":"array","items":{"type":"string"}},"providers":{"type":"array","items":{"type":"string"}},"categories":{"type":"array","items":{"type":"string"}},"granted":{"type":"boolean"},"expires_at":{"type":["string","null"],"format":"date-time"},"version":{"type":"string"}},"additionalProperties":false},
+    "relevance_request":{"type":"object","required":["provider","campaign_id","criteria","purpose"],"properties":{"provider":{"type":"string"},"campaign_id":{"type":"string"},"criteria":{"type":"array","items":{"type":"string"}},"purpose":{"type":"string"}},"additionalProperties":false},
+    "relevance_result":{"type":"object","required":["campaign_id","eligible","score","disclosed_claims"],"properties":{"campaign_id":{"type":"string"},"eligible":{"type":"boolean"},"score":{"type":"number"},"variant_id":{"type":["string","null"]},"disclosed_claims":{"type":"array","items":{"type":"object"}}},"additionalProperties":false}
+  }
+}

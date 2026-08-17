@@ -1,0 +1,16 @@
+{
+  "name": "@openpower/apx-ui",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "check": "node --check src/index.mjs",
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "ink": "7.1.1",
+    "react": "19.2.0"
+  }
+}

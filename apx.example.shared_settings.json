@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "scopes": {
+    "shared": {
+      "prompt_stack": {
+        "value": "universal-assistant",
+        "description": "Default prompt stack applied to agents and execution",
+        "scope": "shared",
+        "targets": [
+          "all"
+        ]
+      },
+      "model_routing": {
+        "value": "auto",
+        "description": "LLM inference routing policy (auto, local_preferred, cloud_fallback)",
+        "scope": "shared",
+        "targets": [
+          "all"
+        ]
+      },
+      "log_level": {
+        "value": "info",
+        "description": "Logging verbosity across nodes and services",
+        "scope": "shared",
+        "targets": [
+          "all"
+        ]
+      },
+      "auto_discovery": {
+        "value": true,
+        "description": "Periodically probe hardware, network peers, and local services",
+        "scope": "shared",
+        "targets": [
+          "all"
+        ]
+      },
+      "telemetry_mode": {
+        "value": "local_only",
+        "description": "Fabric telemetry mode (local_only, openpower_synced)",
+        "scope": "shared",
+        "targets": [
+          "all"
+        ]
+      },
+      "max_parallel_tasks": {
+        "value": 4,
+        "description": "Maximum concurrent background operations per node",
+        "scope": "shared",
+        "targets": [
+          "all"
+        ]
+      },
+      "secret_backend": {
+        "value": "keychain",
+        "description": "Primary secure storage for provider tokens and keys",
+        "scope": "shared",
+        "targets": [
+          "all"
+        ]
+      }
+    }
+  }
+}
