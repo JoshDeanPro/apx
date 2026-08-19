@@ -403,6 +403,14 @@ def _main(argv: list[str] | None = None) -> int:
         destination = Path(args.output).expanduser() if args.output else apx_home() / "config.toml"
         try:
             res = initialize(destination, ssh_hosts=args.host, interactive=not args.non_interactive, force=args.force)
+            if res.get("errors"):
+                if getattr(args, "json", False):
+                    print_json(res)
+                else:
+                    print(f"✗ APX initialization failed; no config written at {destination}")
+                    for item in res["errors"]:
+                        print(f"  - {item.get('host', 'host')}: {item.get('error', 'unknown error')}")
+                return 1
             if getattr(args, "json", False):
                 print_json(res)
             else:

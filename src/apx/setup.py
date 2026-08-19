@@ -42,6 +42,12 @@ def initialize(path: str | Path, *, ssh_hosts: list[str] | None = None, interact
         try:
             info=inspect_host(host); configured.append({"name":name,"target":target.strip(),"reachable":True,"hostname":info["hostname"]}); hosts.append(host)
         except Exception as error: errors.append({"host":name,"target":target.strip(),"error":str(error)})
+    found=sorted(name for name,value in discovered["capabilities"].items() if value["available"])
+    result={"config":str(destination),"local":{"hostname":discovered["hostname"],"os":discovered["os"],"architecture":discovered["architecture"],"capabilities":found},"ssh_hosts":configured,"errors":errors,"written":False}
+    # Never replace a valid topology with a partial local-only config when a
+    # requested remote host could not be validated. Callers can show every
+    # collected error and retry after fixing connectivity or input.
+    if errors: return result
     lines=["version = 1","","[node]",
            "# Which configured host this installation IS. The one machine-specific line",
            "# in this file; everything else can be shared with every other node.",
@@ -49,5 +55,5 @@ def initialize(path: str | Path, *, ssh_hosts: list[str] | None = None, interact
            "","[[hosts]]",f"name = {_quote(local_name)}",'transport = "local"']
     for host in hosts[1:]: lines.extend(["","[[hosts]]",f"name = {_quote(host.name)}",'transport = "ssh"',f"target = {_quote(host.target or '')}"])
     atomic_write(destination,"\n".join(lines)+"\n")
-    found=sorted(name for name,value in discovered["capabilities"].items() if value["available"])
-    return {"config":str(destination),"local":{"hostname":discovered["hostname"],"os":discovered["os"],"architecture":discovered["architecture"],"capabilities":found},"ssh_hosts":configured,"errors":errors}
+    result["written"]=True
+    return result
