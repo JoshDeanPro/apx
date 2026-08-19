@@ -126,6 +126,8 @@ class ProviderSession:
             action = self._action(request.action)
         except KeyError:
             return self._error(request, "rejected", "unsupported_action", "provider does not expose this action")
+        if not action.available:
+            return self._error(request, "unavailable", "provider_unavailable", "provider exposes this action but it is temporarily unavailable")
         try:
             Draft202012Validator(action.schema).validate(request.input)
         except ValidationError:
@@ -198,6 +200,8 @@ class ProviderSession:
             action = self._action(request.action)
         except KeyError:
             return self._error(request, "rejected", "unsupported_action", "provider does not expose this action")
+        if not action.available:
+            return self._error(request, "unavailable", "provider_unavailable", "provider exposes this action but it is temporarily unavailable")
         retry = action.definition().retry or ("safe" if action.read_only else "idempotency_required" if action._idempotent() else "never")
         if not action.read_only and not request.actor:
             return self._error(request,"rejected","unauthenticated","consequential actions require an actor")
