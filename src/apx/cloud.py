@@ -357,8 +357,13 @@ class APX:
         inventory = self.server_inspect(server)
         return {key: inventory[key] for key in ("id", "name", "reference", "status", "health", "protocol_version", "manifest_version", "implementation_version", "error")}
 
+    def capability_paths(self, action: str, resource: str | None = None, subject: str | None = None) -> dict[str, Any]:
+        graph = self.capability_graph(actor=subject or self.actors.resolve_default())
+        return {"action": action, "resource": resource, "paths": [path.to_dict() for path in graph.paths(action, resource=resource)]}
+
     def _register_operational_actions(self) -> None:
         obj=lambda properties,required=():{"type":"object","properties":properties,"required":list(required),"additionalProperties":False}; string={"type":"string"}
+        self.actions.register(RegisteredAction("capability.paths","Find configured provider/resource paths for an action",self.capability_paths,obj({"action":string,"resource":string,"subject":string},("action",))))
         self.actions.register(RegisteredAction("server.list","List configured APX provider/server inventory without credentials or client-private state",self.server_list,obj({})))
         self.actions.register(RegisteredAction("server.inspect","Inspect one configured APX server/provider",self.server_inspect,obj({"server":string},("server",))))
         self.actions.register(RegisteredAction("server.status","Read one APX server/provider health and protocol status",self.server_status,obj({"server":string},("server",))))
@@ -608,7 +613,7 @@ class APX:
     # must never itself be deniable, or permission failures become mysterious. auth.authenticate
     # is included for the same reason from the other direction: proving who you are cannot
     # itself require a permission grant, or the system is circular and unusable from cold start.
-    INTROSPECTION_ACTIONS = frozenset({"actor.whoami","policy.explain","state.show","auth.authenticate","discovery.capabilities"})
+    INTROSPECTION_ACTIONS = frozenset({"actor.whoami","policy.explain","state.show","auth.authenticate","discovery.capabilities","capability.paths"})
 
     def _mission_extra_allow(self, actor: str) -> tuple[ScopedRule, ...]:
         return tuple(ScopedRule(g["action"],{k:scope_values(v) for k,v in g.get("scope",{}).items()}) for g in self.missions.active_grants(actor))
