@@ -18,6 +18,7 @@ from .auth import AuthenticationError, AuthManager
 from .axp import APX_PROTOCOL_VERSION, ActionReceipt, ActionRequest, ActionResult, ActorDescriptor, Connection, Event, PolicyDecision, PreparedAction, Resource, ResourceRelationship, Capability, Context, StructuredError, parse_resource_ref
 from .config import load, load_document
 from .credentials import ActorCredentialError, ActorCredentialStore, CredentialRegistry, KeychainBackend, OpenBaoBackend, SecretBackendError, SecretsManager, VaultwardenBackend
+from .identity import parse_actor_id
 from .enrollment import EnrollmentError, EnrollmentStore
 from .events import EventRouter
 from .groups import GroupStore
@@ -667,6 +668,13 @@ class APX:
 
     def execute(self, request: ActionRequest) -> ActionResult:
         actor=request.actor or self.actors.resolve_default()
+        if request.action == "secret.reveal":
+            try:
+                actor_kind, _ = parse_actor_id(actor)
+            except ValueError:
+                actor_kind = "unknown"
+            if actor_kind != "human":
+                return ActionResult(action=request.action, ok=False, error=StructuredError("permission_denied", "raw credential reveal is restricted to human actors"), request_id=request.request_id, target=request.target, status="denied")
         # Authentication informs policy of *who* is asking; it never grants authority --
         # PolicyEngine below still only ever consults the local actor-id -> role mapping,
         # regardless of authentication_method (local_os/openpower/cached_openpower/...).
