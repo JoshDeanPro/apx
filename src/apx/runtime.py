@@ -19,7 +19,7 @@ from jsonschema import ValidationError
 from jsonschema.validators import Draft202012Validator
 
 from .actions import ActionError
-from .axp import ActionReceipt, ActionRequest, ActionResult, PreparedAction, StructuredError
+from .axp import ActionReceipt, ActionRequest, ActionResult, PreparedAction, StructuredError, validate_action_transition
 from .credentials import CredentialRegistry
 from .providers import ActionProvider
 
@@ -92,7 +92,7 @@ class ProviderSession:
             if kind=="prepared": self.prepared[key]=_prepared(value)
             elif kind=="result":
                 result=ActionResult.from_dict(value); self.results[key]=result
-                if result.status=="accepted" and isinstance(result.result,dict) and result.result.get("operation_id"):
+                if isinstance(result.result,dict) and result.result.get("operation_id"):
                     self.operations[result.result["operation_id"]]=result
             elif kind=="idempotency": self.idempotency[key]=value["request_id"]
             elif kind=="authorization": self._authorizations.add(key)
@@ -120,6 +120,10 @@ class ProviderSession:
         if isinstance(decision, tuple):
             return bool(decision[0]), str(decision[1])
         return bool(decision), "provider policy denied the action"
+
+    def _transition_prepared(self, prepared: PreparedAction, status: str) -> PreparedAction:
+        validate_action_transition(prepared.status, status)
+        return replace(prepared, status=status)
 
     def prepare(self, request: ActionRequest) -> PreparedAction | ActionResult:
         try:
@@ -158,9 +162,13 @@ class ProviderSession:
         prepared = self.prepared.get(prepared_action_id)
         request = ActionRequest(prepared.action if prepared else "unknown", prepared_action_id=prepared_action_id)
         if not prepared:
-            return self._error(request, "expired", "expired", "prepared action does not exist or has expired")
+            return self._error(request, "rejected", "expired", "prepared action does not exist or has expired")
         if _time(prepared.expires_at) is None or _time(prepared.expires_at) <= _now():
-            return self._error(request, "expired", "expired", "prepared action has expired")
+            return self._error(request, "rejected", "expired", "prepared action has expired")
+        try:
+            validate_action_transition(prepared.status, "authorized")
+        except ValueError:
+            return self._error(request, "rejected", "state_conflict", f"prepared action is already {prepared.status}")
         authorization_id = confirmation.get("authorization_id") or confirmation.get("nonce")
         valid = confirmation.get("confirmed") is True and confirmation.get("level") == prepared.confirmation_required
         valid = valid and confirmation.get("prepared_action_id") == prepared.prepared_action_id
@@ -175,7 +183,7 @@ class ProviderSession:
                                "confirmation must bind to the unexpired prepared action")
         self._authorizations.add(authorization_id)
         self._put("authorization",authorization_id,{"used":True})
-        authorized = replace(prepared, status="authorized")
+        authorized = self._transition_prepared(prepared, "authorized")
         self.prepared[prepared_action_id] = authorized
         self._put("prepared",prepared_action_id,authorized.to_dict())
         return ActionResult(prepared.action, True, result={"prepared_action_id": prepared_action_id},
@@ -185,11 +193,13 @@ class ProviderSession:
         prepared = self.prepared.get(prepared_action_id)
         request = ActionRequest(prepared.action if prepared else "unknown", prepared_action_id=prepared_action_id)
         if not prepared:
-            return self._error(request, "expired", "expired", "prepared action does not exist")
-        if prepared.status in {"accepted", "in-progress", "completed"}:
-            return self._error(request, "rejected", "state_conflict", "action crossed the commit boundary")
-        self.prepared[prepared_action_id] = replace(prepared, status="cancelled")
-        self._put("prepared",prepared_action_id,self.prepared[prepared_action_id].to_dict())
+            return self._error(request, "rejected", "expired", "prepared action does not exist")
+        try:
+            cancelled = self._transition_prepared(prepared, "cancelled")
+        except ValueError:
+            return self._error(request, "rejected", "state_conflict", "action has crossed a terminal or commit boundary")
+        self.prepared[prepared_action_id] = cancelled
+        self._put("prepared",prepared_action_id,cancelled.to_dict())
         return ActionResult(prepared.action, True, request_id=prepared.request_id, target=prepared.target,
                             status="cancelled", result={"committed": False})
 
@@ -220,7 +230,7 @@ class ProviderSession:
             if prepared.status not in ({"authorized"} if action.confirmation != "none" else {"prepared"}):
                 return self._error(request, "rejected", "confirmation_required", "prepared action is not authorized")
             if _time(prepared.expires_at) is None or _time(prepared.expires_at) <= _now():
-                return self._error(request, "expired", "expired", "prepared action has expired")
+                return self._error(request, "rejected", "expired", "prepared action has expired")
             if request.authoritative_state_version != prepared.authoritative_state_version:
                 return self._error(request, "rejected", "precondition_failed", "authoritative state version changed")
             if action.prepare_handler and prepared.authoritative_state_version is not None:
@@ -253,11 +263,19 @@ class ProviderSession:
             return self._error(request, "rejected", "resource_locked", "a conflicting action is executing", retryable=True, retry_after=1)
         committed_at = _now().isoformat()
         if prepared:
-            self.prepared[prepared.prepared_action_id] = replace(prepared, status="accepted")
+            try:
+                accepted = self._transition_prepared(prepared, "accepted")
+            except ValueError:
+                return self._error(request, "rejected", "state_conflict", f"prepared action is already {prepared.status}")
+            self.prepared[prepared.prepared_action_id] = accepted
+            self._put("prepared",prepared.prepared_action_id,accepted.to_dict())
         try:
             raw = action.handler(**request.input)
             if isinstance(raw,OperationAccepted):
-                result=ActionResult(action.name,True,result={"operation_id":raw.operation_id,**(raw.result or {})},
+                operation_result={"operation_id":raw.operation_id,**(raw.result or {})}
+                if request.prepared_action_id:
+                    operation_result.setdefault("prepared_action_id",request.prepared_action_id)
+                result=ActionResult(action.name,True,result=operation_result,
                     request_id=request.request_id,target=request.target,status="accepted")
                 self.operations[raw.operation_id]=result; self.results[request.request_id]=result
                 self._put("result",request.request_id,result.to_dict())
@@ -297,6 +315,13 @@ class ProviderSession:
             result = self._error(request, "failed", "execution_failed", self.credentials.redact_text(str(error)))
         finally:
             resource_lock.release()
+        if prepared and result.status != "accepted":
+            try:
+                final_prepared = self._transition_prepared(self.prepared[prepared.prepared_action_id], result.status)
+            except ValueError:
+                return self._error(request, "failed", "state_conflict", f"cannot persist prepared action transition to {result.status}")
+            self.prepared[prepared.prepared_action_id] = final_prepared
+            self._put("prepared",prepared.prepared_action_id,final_prepared.to_dict())
         self.results[request.request_id] = result
         self._put("result",request.request_id,result.to_dict())
         if result.status in {"completed","partial","verification_failed"}:
@@ -315,15 +340,31 @@ class ProviderSession:
         current=self.operations.get(operation_id)
         if not current: raise KeyError(operation_id)
         status="completed" if error is None and verified else "verification_failed" if error is None else "failed"
+        try:
+            validate_action_transition(current.status, status)
+        except ValueError:
+            request = ActionRequest(current.action, target=current.target, request_id=current.request_id or operation_id)
+            return self._error(request, "rejected", "state_conflict", f"operation is already {current.status}")
         receipt=None
         if status in {"completed","verification_failed"}:
             receipt=ActionReceipt(current.action,self.provider.identity.id,target=current.target,status=status,result=self.credentials.redact(result),
                 request_id=current.request_id,completed_at=_now().isoformat(),verification_status="verified" if verified else "failed")
             self.provider.receipts[receipt.receipt_id]=receipt; self._put("receipt",receipt.receipt_id,receipt.to_dict())
-        final=ActionResult(current.action,status=="completed",result=result,error=error or (None if verified else StructuredError("verification_failed","postconditions were not verified")),
+        completion_result = dict(result) if isinstance(result, dict) else {"value": result}
+        completion_result.setdefault("operation_id", operation_id)
+        if isinstance(current.result, dict) and current.result.get("prepared_action_id"):
+            completion_result.setdefault("prepared_action_id", current.result["prepared_action_id"])
+        final=ActionResult(current.action,status=="completed",result=completion_result,error=error or (None if verified else StructuredError("verification_failed","postconditions were not verified")),
             request_id=current.request_id,target=current.target,status=status,receipt=receipt)
         self.operations[operation_id]=final; self.results[current.request_id or ""]=final
-        if current.request_id: self._put("result",current.request_id,final.to_dict())
+        if current.request_id:
+            prepared_id = current.result.get("prepared_action_id") if isinstance(current.result, dict) else None
+            prepared = self.prepared.get(prepared_id) if isinstance(prepared_id, str) else None
+            if prepared and isinstance(prepared_id, str):
+                final_prepared = self._transition_prepared(prepared, status)
+                self.prepared[prepared_id] = final_prepared
+                self._put("prepared",prepared_id,final_prepared.to_dict())
+            self._put("result",current.request_id,final.to_dict())
         return final
 
     def operation_status(self, operation_id: str) -> ActionResult | None:
