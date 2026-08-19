@@ -30,9 +30,9 @@ class ProcessResult:
 
 def run(argv: Sequence[str], *, timeout: int=DEFAULT_TIMEOUT, cwd: str|Path|None=None,
         input_text: str|None=None, env: Mapping[str,str]|None=None,
-        inherit_env: bool=True, max_output_bytes: int=MAX_OUTPUT_BYTES) -> ProcessResult:
+        inherit_env: bool=False, max_output_bytes: int=MAX_OUTPUT_BYTES) -> ProcessResult:
     if not argv or not all(isinstance(value,str) and "\x00" not in value for value in argv): raise ProcessError("argv must be non-empty strings without NUL bytes")
-    environment=dict(os.environ) if inherit_env else {}
+    environment=dict(os.environ) if inherit_env else {"PATH":os.environ.get("PATH","/usr/bin:/bin"),"HOME":os.environ.get("HOME",str(Path.home())),"LANG":os.environ.get("LANG","C"),"LC_ALL":os.environ.get("LC_ALL","")}
     if env: environment.update(env)
     with tempfile.TemporaryFile() as stdout_file,tempfile.TemporaryFile() as stderr_file:
         try:

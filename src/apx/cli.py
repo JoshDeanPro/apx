@@ -83,6 +83,10 @@ def _main(argv: list[str] | None = None) -> int:
     ver = sub.add_parser("version", help="report running APX version")
     ver.add_argument("--json", action="store_true", help="output raw JSON")
 
+    security_p = sub.add_parser("security", help="offline security and privacy exposure checks")
+    security_p.add_argument("verb", nargs="?", default="check", choices=["check"])
+    security_p.add_argument("--json", action="store_true")
+
     serve = sub.add_parser("serve", help="expose full action registry over HTTP (APX Provider protocol)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8420)
@@ -485,7 +489,20 @@ def _main(argv: list[str] | None = None) -> int:
         print_json(data)
         return 0
 
-    # 3. Load APX cloud instance for protocol actions
+    if args.command == "security":
+        from .security import check
+        report = check(args.config)
+        if getattr(args, "json", False):
+            print_json(report)
+        else:
+            print("APX security check")
+            for finding in report["checks"]:
+                print(f"{finding['severity']}: {finding['message']} — {finding['next_action']}")
+            if not report["checks"]:
+                print("PASS: no configured exposure warnings found")
+            print("Model: local checks reduce accidental disclosure; they do not provide process or OS sandboxing")
+        return 0 if report["ok"] else 2
+
     try:
         cloud = APX(args.config)
     except Exception as error:

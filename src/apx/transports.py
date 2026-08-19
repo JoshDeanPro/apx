@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import os
 import shlex
 from dataclasses import dataclass
 
@@ -48,7 +49,7 @@ class SSHTransport(Transport):
             raise TransportError(f"invalid SSH host target {target!r}")
         command = ["ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "ConnectionAttempts=1", target, "--", shlex.join(argv)]
         try:
-            result = run(command,input_text=input_text,timeout=timeout)
+            result = run(command,input_text=input_text,timeout=timeout,env={"SSH_AUTH_SOCK": os.environ["SSH_AUTH_SOCK"]} if os.environ.get("SSH_AUTH_SOCK") else None)
         except (ProcessError,ProcessTimeout) as error: raise TransportError(str(error)) from error
         return CommandResult(tuple(command), result.exit_code, result.stdout, result.stderr)
 

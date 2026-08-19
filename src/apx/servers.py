@@ -26,7 +26,7 @@ def _safe_endpoint(value: str | None) -> str | None:
     netloc = hostname
     if parsed.port:
         netloc += f":{parsed.port}"
-    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, ""))
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
 @dataclass(frozen=True)
@@ -74,7 +74,7 @@ class ServerInventory:
             available_actions=tuple(sorted(action.id for action in manifest.actions if action.available)),
             unavailable_actions=tuple(sorted(manifest.unavailable_actions)),
             capabilities=tuple(sorted(manifest.capabilities)),
-            required_credentials=tuple(sorted(manifest.required_credentials)),
+            required_credentials=("credential_required",) if manifest.required_credentials else (),
             required_permissions=tuple(sorted(manifest.required_permissions)),
             allowed_actor_types=tuple(sorted(manifest.allowed_actor_types)),
         )

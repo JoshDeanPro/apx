@@ -32,7 +32,7 @@ class HTTPClient:
     def __init__(self, *, timeout: float=DEFAULT_TIMEOUT, max_response_bytes: int=MAX_RESPONSE_BYTES,
                  transport: httpx.BaseTransport|None=None):
         self.timeout=timeout; self.max_response_bytes=max_response_bytes
-        self._client=httpx.Client(timeout=httpx.Timeout(timeout),follow_redirects=False,verify=True,trust_env=True,
+        self._client=httpx.Client(timeout=httpx.Timeout(timeout),follow_redirects=False,verify=True,trust_env=False,
             headers={"User-Agent":USER_AGENT,"Accept":"application/json"},transport=transport)
 
     def close(self)->None: self._client.close()

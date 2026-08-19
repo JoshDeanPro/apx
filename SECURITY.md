@@ -1,21 +1,15 @@
-# Security Policy
+# APX Security Model
 
-APX provides permissioned action capability and capability fabric execution. Security and privacy are core requirements.
+APX uses a zero-trust, minimum-disclosure model:
 
-## Reporting a Vulnerability
+- Local APX starts with a loopback-only HTTP server unless the operator explicitly configures remote serving with a bearer token.
+- Provider discovery is public capability metadata only; credentials, local paths, unrelated providers, devices, plugins, and client state are not part of the public manifest.
+- Credential values stay in credential backends and are resolved only for the authorized action that needs them. Credential references are not secret values.
+- Child processes receive a minimal environment by default. SSH agent access is passed only to SSH transport when explicitly present.
+- Ordinary errors are mapped to safe protocol messages; local checks and logs are not a sandbox.
+- Python in-process plugins/providers are trusted-code boundaries, not containment boundaries. Untrusted code requires an OS/process/container sandbox that APX does not currently mandate or provide.
+- Filesystem, network, SSH, policy, confirmation, and actor restrictions remain enforced by the existing runtime and OS.
 
-Please report security vulnerabilities responsibly through private channels (such as GitHub Security Advisories) rather than public issues or discussion threads.
+Run `apx security check` for a fast, offline inspection of configuration exposure, state-file permissions, plaintext endpoints, public binds, enabled plugins, and debug mode. Findings are warnings or failures with an actionable next step; the command never resolves or prints secrets.
 
-Include:
-- Summary of the vulnerability and impact
-- Steps to reproduce or a minimal proof of concept
-- Affected versions or components
-
-## Scope
-
-Key security areas:
-- **Permission & Policy Enforcement**: Correct evaluation of permissions, roles, and grants.
-- **Confirmation Verification**: Enforcing confirmations on mutating and high-risk actions.
-- **Credential Protection**: Proper redaction of secrets in logs, receipts, and event streams.
-- **Protocol Conformance**: Schema validation and verification of requests, results, and provider manifests.
-- **Receipt Integrity**: Verifiable digests and signature integrity.
+Report security issues privately through the repository's configured GitHub security reporting channel. Do not include credentials, tokens, private keys, personal data, or private host details in issues or pull requests.

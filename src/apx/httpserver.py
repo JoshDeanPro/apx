@@ -20,7 +20,9 @@ it just adds a second local transport that inherits the same trust boundary.
 """
 from __future__ import annotations
 
+import hmac
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -56,16 +58,29 @@ class CloudProviderView:
 DEFAULT_ALLOWED_ORIGINS = ("http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8080", "http://127.0.0.1:8080")
 
 
-def make_handler(adapter: HTTPProviderAdapter, *, allowed_origins: tuple[str, ...] = DEFAULT_ALLOWED_ORIGINS) -> type[BaseHTTPRequestHandler]:
+def make_handler(adapter: HTTPProviderAdapter, *, allowed_origins: tuple[str, ...] = DEFAULT_ALLOWED_ORIGINS, bearer_token: str | None = None) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+
+        def _authorized(self) -> bool:
+            if bearer_token is None:
+                return True
+            supplied = self.headers.get("Authorization", "")
+            expected = "Bearer " + bearer_token
+            return hmac.compare_digest(supplied, expected)
+
+        def _require_auth(self) -> bool:
+            if self._authorized():
+                return True
+            self._respond(401, {"Content-Type": "application/apx+json", "WWW-Authenticate": "Bearer"}, {"error": {"code": "authentication_required", "message": "authentication is required"}})
+            return False
 
         def _cors_headers(self) -> dict[str, str]:
             origin = self.headers.get("Origin")
             if origin and origin in allowed_origins:
                 return {"Access-Control-Allow-Origin": origin, "Vary": "Origin",
                         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                        "Access-Control-Allow-Headers": "Content-Type"}
+                        "Access-Control-Allow-Headers": "Content-Type, Authorization"}
             return {}
 
         def _respond(self, status: int, headers: dict[str, str], payload: Any) -> None:
@@ -83,10 +98,14 @@ def make_handler(adapter: HTTPProviderAdapter, *, allowed_origins: tuple[str, ..
             self.end_headers()
 
         def do_GET(self) -> None:
+            if not self._require_auth():
+                return
             status, headers, payload = adapter.handle("GET", self.path)
             self._respond(status, headers, payload)
 
         def do_POST(self) -> None:
+            if not self._require_auth():
+                return
             raw_len = self.headers.get("Content-Length", "0")
             try:
                 length = int(raw_len or 0)
@@ -120,10 +139,14 @@ def make_handler(adapter: HTTPProviderAdapter, *, allowed_origins: tuple[str, ..
     return Handler
 
 
-def serve(cloud: APX, *, host: str = "127.0.0.1", port: int = 8420, allowed_origins: tuple[str, ...] = DEFAULT_ALLOWED_ORIGINS) -> None:
+def serve(cloud: APX, *, host: str = "127.0.0.1", port: int = 8420, allowed_origins: tuple[str, ...] = DEFAULT_ALLOWED_ORIGINS, bearer_token: str | None = None) -> None:
+    loopback = host in {"127.0.0.1", "localhost", "::1"}
+    bearer_token = bearer_token or os.environ.get("APX_SERVER_TOKEN")
+    if not loopback and not bearer_token:
+        raise ValueError("non-loopback APX serving requires APX_SERVER_TOKEN or an explicit bearer token")
     view = CloudProviderView(cloud, url=f"http://{host}:{port}")
     adapter = HTTPProviderAdapter(view, executor=cloud.execute, preparer=cloud.prepare)
-    server = ThreadingHTTPServer((host, port), make_handler(adapter, allowed_origins=allowed_origins))
+    server = ThreadingHTTPServer((host, port), make_handler(adapter, allowed_origins=allowed_origins, bearer_token=bearer_token))
     action_count = len(cloud.actions.list())
     print(f"apx: serving {action_count} actions over HTTP on http://{host}:{port} "
           f"(discovery at {DISCOVERY_PATH}) -- Ctrl-C to stop")

@@ -102,7 +102,10 @@ class CredentialRegistry:
         return scrub(value)
 
     def redact_text(self, value: str) -> str:
-        cleaned=value
+        cleaned = re.sub(r"(?i)(bearer\s+|basic\s+)[A-Za-z0-9+/=_\-.]+", r"\1" + REDACTED, value)
+        cleaned = re.sub(r"(?i)(cookie\s*[:=]\s*)([^;\s]+)", r"\1" + REDACTED, cleaned)
+        cleaned = re.sub(r"(?i)(https?://)([^/@\s]+):([^/@\s]+)@", r"\1" + REDACTED + "@", cleaned)
+        cleaned = re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", REDACTED, cleaned, flags=re.DOTALL)
         for reference in self.references.values():
             secret=os.environ.get(reference.reference) if reference.source=="environment" else None
             if secret: cleaned=cleaned.replace(secret,REDACTED)
