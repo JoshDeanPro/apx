@@ -1848,37 +1848,29 @@ class TUIEngine:
 
     def create_servers_screen(self) -> NavScreen:
         def get_items() -> list[MenuItem]:
+            result = self.cloud.run("server.list", actor=self.actor)
+            if not result.ok:
+                return [MenuItem("server_inventory_error", "Server inventory unavailable", result.error.message if result.error else "Unknown error", tag="ERROR", tag_style="red")]
+            servers = result.result.get("servers", []) if isinstance(result.result, dict) else []
+            if not servers:
+                return [MenuItem("server_inventory_empty", "No configured APX servers", "Connect a provider to see its protocol and capability inventory.", tag="EMPTY", tag_style="dim")]
             items: list[MenuItem] = []
-            items.append(MenuItem(
-                id="srv_local",
-                title="Local APX Engine",
-                subtitle="Local capability fabric & in-process action registry",
-                tag="RUNNING",
-                tag_style="green",
-                on_select=lambda: self.show_info_modal("Local APX Server", f"APX Protocol: 0.1\nEngine: Native Python In-Process\nActions: {len(self.cloud.actions.list())}\nProviders: {len(self.cloud.providers)}"),
-            ))
-
-            for pid, prov in self.cloud.providers.items():
-                if hasattr(prov, "manifest"):
-                    items.append(MenuItem(
-                        id=f"srv_prov_{pid}",
-                        title=f"Provider: {getattr(prov, 'name', pid)}",
-                        subtitle=f"Action Provider ({pid}) · Conformance: PASS",
-                        tag="ONLINE",
-                        tag_style="cyan",
-                        on_select=lambda p=pid: self.show_info_modal(f"Provider: {p}", f"Provider ID: {p}\nProtocol: APX 0.1\nAuth: Scoped Token / Keychain"),
-                    ))
-
-            for conn in self.cloud.connections:
+            for server in servers:
+                status = str(server.get("status", "unknown"))
+                actions = int(server.get("action_count", 0))
+                protocol = server.get("protocol_version", "unknown")
                 items.append(MenuItem(
-                    id=f"srv_mcp_{conn.id}",
-                    title=f"MCP Server: {conn.id}",
-                    subtitle=f"Model Context Protocol Bridge ({conn.adapter})",
-                    tag="CONNECTED",
-                    tag_style="yellow",
-                    on_select=lambda c=conn.id: self.show_info_modal(f"MCP: {c}", f"Connection: {c}\nAdapter: mcp_stdio\nStatus: Online"),
+                    id=f"srv_{server['id']}",
+                    title=server.get("name", server["id"]),
+                    subtitle=f"{status} · {actions} actions · APX {protocol}",
+                    tag=status.upper(),
+                    tag_style="green" if status == "healthy" else "yellow" if status in {"degraded", "authentication_required"} else "red",
+                    on_select=lambda value=server: self.show_info_modal(
+                        f"Server: {value.get('name', value['id'])}",
+                        json.dumps(value, indent=2, sort_keys=True),
+                    ),
+                    data=server,
                 ))
-
             return items
 
         return NavScreen(
