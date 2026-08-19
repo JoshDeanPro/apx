@@ -1634,21 +1634,18 @@ class TUIEngine:
         def get_items() -> list[MenuItem]:
             items: list[MenuItem] = []
             for name, meta in sorted(self.cloud.plugin_manager.metadata.items()):
-                h = next((item for item in self.cloud.plugin_manager.health if item.get("name") == name), {})
-                is_configured = h.get("configured", False)
-                is_ok = h.get("ok", True)
+                status = self.cloud.plugin_manager.status(name)
                 actions_count = len(meta.actions)
-
-                tag = "ACTIVE" if is_configured and is_ok else ("READY" if is_ok else "ERROR")
-                tag_style = "green" if tag == "ACTIVE" else ("cyan" if tag == "READY" else "red")
+                tag = {"active": "ACTIVE", "credentials_required": "CREDENTIALS", "unhealthy": "ERROR", "disabled": "DISABLED", "configuration_required": "CONFIGURE"}.get(status.state, "READY")
+                tag_style = "green" if status.active else "red" if status.state in {"credentials_required", "unhealthy"} else "cyan" if status.state in {"ready", "configuration_required"} else "dim"
 
                 items.append(MenuItem(
                     id=f"my_plug_{name}",
                     title=f"{name}",
-                    subtitle=f"v{meta.version} · {meta.description} ({actions_count} actions)",
+                    subtitle=f"v{meta.version} · {meta.description} ({actions_count} actions) · {status.state}",
                     tag=tag,
                     tag_style=tag_style,
-                    data={"name": name, "metadata": meta.to_dict(), "health": h},
+                    data={"name": name, "metadata": meta.to_dict(), "health": self.cloud.plugin_manager._latest_health(name), "status": status.to_dict()},
                     on_select=lambda n=name: self.show_plugin_details_modal(n),
                 ))
             return items
@@ -1664,13 +1661,15 @@ class TUIEngine:
         try:
             data = self.cloud.plugin_manager.inspect(plugin_name)
             meta = data.get("metadata", {})
-            h = data.get("health", {})
+            status = self.cloud.plugin_manager.status(plugin_name)
             content = (
                 f"Plugin: {plugin_name}\n"
                 f"Version: {meta.get('version')}\n"
                 f"Description: {meta.get('description')}\n"
                 f"APX Spec: {meta.get('apx')}\n"
-                f"Status: {'Healthy / Configured' if h.get('ok') else 'Not fully configured'}\n\n"
+                f"Status: {status.state}\n"
+                f"Active: {'yes' if status.active else 'no'}\n"
+                f"Credentials Ready: {'yes' if status.credential_ready else 'no'}\n\n"
                 f"Contributed Actions ({len(meta.get('actions', []))}):\n"
                 + "\n".join(f"  • {a}" for a in meta.get("actions", [])[:10])
             )
@@ -1694,14 +1693,16 @@ class TUIEngine:
         def get_items() -> list[MenuItem]:
             items: list[MenuItem] = []
             for name, title, desc in catalog:
-                installed = name in self.cloud.plugin_manager.metadata
+                status = self.cloud.plugin_manager.status(name) if name in self.cloud.plugin_manager.metadata else None
+                installed = status is not None
+                status_text = status.state if status else "discoverable but not installed"
                 items.append(MenuItem(
                     id=f"search_plug_{name}",
                     title=title,
-                    subtitle=desc,
-                    tag="INSTALLED" if installed else "AVAILABLE",
-                    tag_style="green" if installed else "cyan",
-                    on_select=lambda n=name, t=title: self.show_info_modal(f"Plugin: {t}", f"Plugin: {t} ({n})\nStatus: {'Installed & Ready' if installed else 'Available'}\n\nTo configure in config.toml:\n[plugins.{n}]\nenabled = true"),
+                    subtitle=f"{desc} · {status_text}",
+                    tag="ACTIVE" if status and status.active else (status.state.upper() if status else "AVAILABLE"),
+                    tag_style="green" if status and status.active else "cyan",
+                    on_select=lambda n=name, t=title, s=status_text: self.show_info_modal(f"Plugin: {t}", f"Plugin: {t} ({n})\nStatus: {s}\n\nTo configure in config.toml:\n[plugins.{n}]\nenabled = true"),
                 ))
             return items
 
