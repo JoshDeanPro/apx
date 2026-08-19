@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol, TYPE_CHECKING
@@ -70,6 +70,22 @@ class PluginMetadata:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class PluginStatus:
+    name: str
+    available: bool
+    installed: bool
+    enabled: bool
+    configured: bool
+    credential_ready: bool
+    healthy: bool
+    active: bool
+    state: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 class PluginManager:
     def __init__(self, actions: ActionRegistry, events: EventRouter, cloud: "APX"):
         self.actions,self.events,self.cloud=actions,events,cloud
@@ -77,6 +93,9 @@ class PluginManager:
         self.resources: list[Resource]=[]; self.capabilities: list[Capability]=[]; self.contexts: list[Context]=[]
         self.resource_discoverers=[]; self.capability_discoverers=[]; self.context_providers=[]
         self.metadata: dict[str,PluginMetadata]={}
+        self._settings: dict[str, Any] = {}
+        self._document: dict[str, Any] = {}
+        self._runtime_active: set[str] = set()
 
     def _setup(self, name: str, plugin: Any) -> None:
         api=PluginAPI(self.actions,self.events,self.cloud,name)
@@ -93,6 +112,7 @@ class PluginManager:
             self.resource_discoverers.extend((name,fn) for fn in api.resource_discoverers)
             self.capability_discoverers.extend((name,fn) for fn in api.capability_discoverers)
             self.context_providers.extend((name,fn) for fn in api.context_providers)
+            self._runtime_active.add(name)
             missing_credentials = [
                 credential_id
                 for credential_id in metadata.credentials
@@ -110,6 +130,8 @@ class PluginManager:
         document={}; settings={}
         if path.exists():
             document=tomllib.loads(path.read_text(encoding="utf-8")); settings=document.get("plugins",{})
+        self._document = document
+        self._settings = settings
         builtins={
             "porkbun":"porkbun", "cloudflare":"cloudflare", "godaddy":"godaddy",
             "discord":"discord", "openai":"openai", "airtable":"airtable",
@@ -152,6 +174,49 @@ class PluginManager:
     def discover_resources(self): return self._collect(self.resource_discoverers)
     def discover_capabilities(self, host: str): return self._collect(self.capability_discoverers,host)
     def provide_contexts(self): return self._collect(self.context_providers)
+    def _latest_health(self, name: str) -> dict[str, Any]:
+        return next((item for item in reversed(self.health) if item.get("name") == name), {})
+
+    def status(self, name: str) -> PluginStatus:
+        available = name in self.metadata
+        configuration = self._settings.get(name, {})
+        if not isinstance(configuration, dict):
+            configuration = {}
+        enabled = bool(configuration.get("enabled", False))
+        configured = bool(configuration)
+        if name == "drift":
+            enabled = True
+            configured = True
+        elif name == "databases":
+            configured = bool(self._document.get("databases"))
+            enabled = configured
+        elif name in self._runtime_active and name not in self._settings:
+            enabled = True
+            configured = True
+        health = self._latest_health(name)
+        missing = tuple(str(item) for item in health.get("missing_credentials", ()))
+        healthy = bool(health.get("ok", False)) and not health.get("error")
+        credential_ready = not missing
+        active = available and enabled and configured and name in self._runtime_active and healthy and credential_ready
+        if not available:
+            state = "not_available"
+        elif active:
+            state = "active"
+        elif missing:
+            state = "credentials_required"
+        elif not enabled:
+            state = "disabled"
+        elif not configured:
+            state = "configuration_required"
+        elif not healthy:
+            state = "unhealthy"
+        else:
+            state = "ready"
+        return PluginStatus(name, available, available, enabled, configured, credential_ready, healthy, active, state)
+
+    def statuses(self) -> list[PluginStatus]:
+        return [self.status(name) for name in sorted(self.metadata)]
+
     def inspect(self, name: str):
         if name not in self.metadata: raise KeyError(f"plugin {name!r} is not loaded")
         health=next((item for item in reversed(self.health) if item["name"]==name),{"name":name,"ok":True})
