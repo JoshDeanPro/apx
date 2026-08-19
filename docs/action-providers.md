@@ -83,6 +83,7 @@ The optional `apx-commerce` profile requires a provider that exposes recurring e
 
 ## Generated actions and conformance
 
+Generated actions are subject to the same provider manifest, lifecycle, authorization, policy, idempotency, disclosure, and reversal requirements as manually defined actions.
 
 `validate_provider()` checks manifest round trips, unique IDs, object input schemas, risk/confirmation enums, reversal consistency, declared idempotency, secret-shaped manifest fields, and Commerce reciprocity. The reusable tests in `tests/test_providers.py` cover lifecycle, authorization, replay, expiry, revocation, disclosure, receipt redaction, policy precedence, HTTP wire behavior, and reversal.
 

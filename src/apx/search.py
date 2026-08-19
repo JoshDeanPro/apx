@@ -4,7 +4,7 @@
 No embeddings, no vector database, no AI call -- APX already knows its own hosts,
 projects, actions, blueprints, connections, and grants; a query should look them up
 directly instead of spending a model call rediscovering state APX already has.
-replacement for a fast deterministic index existing first.
+Model reasoning is not a replacement for a fast deterministic index; the index should exist first.
 """
 from __future__ import annotations
 
