@@ -436,7 +436,9 @@ class HTTPProviderAdapter:
 
     def handle(self, method: str, path: str, body: dict[str,Any] | None = None) -> tuple[int,dict[str,str],dict[str,Any]]:
         headers={"Content-Type":"application/apx+json","Cache-Control":"no-store"}
-        if method=="GET" and path==DISCOVERY_PATH: return 200,headers,self.provider.manifest().public_dict()
+        if method=="GET" and path==DISCOVERY_PATH:
+            manifest = self.provider.public_manifest() if hasattr(self.provider, "public_manifest") else self.provider.manifest()
+            return 200,headers,manifest.public_dict()
         if method=="GET" and path.startswith("/apx/v0.1/status/"):
             result=self.session.status(path.rsplit("/",1)[-1]) if self.session else None
             return (200,headers,result.to_dict()) if result else (404,headers,{"error":{"code":"invalid_request","message":"request not found"}})

@@ -48,7 +48,13 @@ class CloudProviderView:
         return ProviderManifest(self.identity, actions, resources,
                                  capabilities=("discover", "prepare", "execute", "receipts"), transports=transports)
 
+    def public_manifest(self) -> ProviderManifest:
+        private_namespaces = ("secret.", "credential.", "identity.", "agent.", "prompt.", "project.", "mission.", "task.", "host.", "node.", "server.", "provider.", "plugin.", "group.", "resource.", "settings.")
+        actions = tuple(action.definition() for action in self.cloud.actions.list() if action.read_only and not action.destructive and not action.name.startswith(private_namespaces))
+        return ProviderManifest(self.identity, actions, (), capabilities=("discover",), transports=())
+
     def get_receipt(self, receipt_id: str) -> Any: return self.receipts.get(receipt_id)
+
 
 
 # Browser callers only: a page served from these origins may fetch this loopback-bound
