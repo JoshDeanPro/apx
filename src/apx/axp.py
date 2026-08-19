@@ -38,6 +38,47 @@ INTERNAL_EXECUTION_STATUSES = (
 
 ACTION_STATUSES = PUBLIC_ACTION_STATUSES + INTERNAL_EXECUTION_STATUSES
 
+# Execution lifecycle transitions. `available` and `unavailable` describe an action
+# definition/provider capability, not an execution instance, so they intentionally do
+# do not participate in this graph. Same-state writes are available only through the
+# explicit `allow_same` restore path; all other writes must follow an explicit edge.
+ACTION_LIFECYCLE_TRANSITIONS: dict[str, frozenset[str]] = {
+    "pending": frozenset({"prepared", "scheduled", "cancelled", "rejected", "failed"}),
+    "scheduled": frozenset({"pending", "in-progress", "cancelled", "rejected", "failed"}),
+    "awaiting-input": frozenset({"prepared", "cancelled", "rejected", "failed"}),
+    "awaiting-approval": frozenset({"authorized", "cancelled", "rejected", "denied", "failed"}),
+    "prepared": frozenset({"authorized", "accepted", "cancelled", "rejected", "denied", "failed"}),
+    "authorized": frozenset({"accepted", "cancelled", "rejected", "denied", "failed"}),
+    "accepted": frozenset({"in-progress", "completed", "failed", "denied", "verification_failed"}),
+    "in-progress": frozenset({"completed", "failed", "verification_failed"}),
+    "available": frozenset(),
+    "unavailable": frozenset(),
+    "completed": frozenset(),
+    "failed": frozenset(),
+    "cancelled": frozenset(),
+    "rejected": frozenset(),
+    "denied": frozenset(),
+    "verification_failed": frozenset(),
+}
+
+TERMINAL_ACTION_STATES = frozenset({
+    "completed", "failed", "cancelled", "rejected", "denied", "verification_failed", "unavailable"
+})
+PREPARED_ACTION_STATES = frozenset(ACTION_LIFECYCLE_TRANSITIONS) - {"available", "unavailable", "pending", "scheduled", "awaiting-input", "awaiting-approval"}
+
+
+def validate_action_transition(current: str | None, next_status: str, *, allow_same: bool = False) -> None:
+    """Validate one action execution status write using APX's existing vocabulary."""
+    if next_status not in ACTION_STATUSES:
+        raise ValueError(f"invalid action lifecycle status {next_status!r}")
+    if current is None:
+        return
+    if current == next_status:
+        if allow_same:
+            return
+        raise ValueError(f"invalid action lifecycle transition {current!r} -> {next_status!r}")
+    if current not in ACTION_LIFECYCLE_TRANSITIONS or next_status not in ACTION_LIFECYCLE_TRANSITIONS[current]:
+        raise ValueError(f"invalid action lifecycle transition {current!r} -> {next_status!r}")
 RETRY_POLICIES = ("safe", "idempotency_required", "manual", "never")
 STANDARD_ERROR_CODES = (
     "invalid_request", "unsupported_action", "unauthenticated", "permission_denied",
@@ -479,6 +520,8 @@ class PreparedAction:
     status: str = "prepared"
 
     def __post_init__(self) -> None:
+        if self.status not in PREPARED_ACTION_STATES:
+            raise ValueError(f"invalid prepared action status {self.status!r}")
         if self.confirmation_required not in CONFIRMATION_LEVELS:
             raise ValueError(f"invalid confirmation_required {self.confirmation_required!r}; expected one of {CONFIRMATION_LEVELS}")
 
