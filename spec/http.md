@@ -28,3 +28,22 @@ no database server is required.
 
 Local direct calls and SSH on-demand Nodes carry the same logical messages and state
 machine. SSH host verification remains enabled; APX does not require a daemon.
+
+## Discovery and compatibility outcomes
+
+Discovery failures remain ordinary Python exceptions for existing callers, but
+`RemoteProvider.discover()` raises `ProviderDiscoveryError`, which is both a
+`ValueError` and an `HTTPFailure`. Its `structured_error` field contains the
+machine-readable outcome without secrets:
+
+- `connection_rejected`: the endpoint or transport is not acceptable, such as
+  remote plain HTTP.
+- `provider_unavailable`: timeout, connection failure, or retryable server failure.
+- `invalid_request`: the manifest is malformed, oversized, or fails provider validation.
+- `protocol_version_unsupported`: the client and provider have no compatible APX version.
+- `incompatible_requirements`: required capabilities, actions, credentials,
+  permissions, or actor types cannot be satisfied.
+
+`evaluate_compatibility()` keeps the existing human-readable `reasons` tuple and
+also returns structured `errors`. A caller may inspect the first error through
+`CompatibilityResult.error`; no raw credential values are included.

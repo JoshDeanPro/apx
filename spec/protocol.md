@@ -96,6 +96,16 @@ Long-running handlers return `accepted` and an `operation_id`. Clients MAY disco
 and later use operation status. Completion produces the same verified result/receipt
 as an immediate Action; APX does not require an always-open connection or task queue.
 
+The reference lifecycle validator keeps action-definition availability separate from
+execution state. A prepared execution may move to `authorized`, `accepted`, or
+`cancelled`; an authorized execution may move to `accepted` or `cancelled`; an
+accepted execution may move to `in-progress`, `completed`, `failed`, `denied`, or
+`verification_failed`; an in-progress execution may move to `completed`, `failed`,
+or `verification_failed`. Terminal execution states do not transition again.
+Cancellation is a pre-commit operation and is rejected after acceptance. Same-state
+writes require an explicit restore/idempotency path rather than being treated as a
+new lifecycle transition.
+
 ## Errors
 
 Core codes are: `invalid_request`, `unsupported_action`, `unauthenticated`,
@@ -103,7 +113,8 @@ Core codes are: `invalid_request`, `unsupported_action`, `unauthenticated`,
 `precondition_failed`, `state_conflict`, `rate_limited`, `cooldown_active`,
 `resource_locked`, `provider_unavailable`, `expired`, `cancelled`,
 `execution_failed`, `partial_failure`, `verification_failed`,
-`protocol_version_unsupported`, and `ambiguous_execution`.
+`protocol_version_unsupported`, `incompatible_requirements`,
+`connection_rejected`, `connection_terminated`, and `ambiguous_execution`.
 
 Providers MAY add `provider_code`, safe details, `retry_after`, and `next_actions`.
 Provider codes never override Core behavior.

@@ -86,6 +86,7 @@ STANDARD_ERROR_CODES = (
     "rate_limited", "cooldown_active", "resource_locked", "provider_unavailable",
     "expired", "cancelled", "execution_failed", "partial_failure",
     "verification_failed", "protocol_version_unsupported", "ambiguous_execution",
+    "incompatible_requirements", "connection_rejected", "connection_terminated",
 )
 
 # Where an Action's implementation actually comes from -- lets a client tell "Discord's own

@@ -21,6 +21,14 @@ from .health import ComponentHealth
 DISCOVERY_PATH = "/.well-known/apx"
 
 
+class ProviderDiscoveryError(HTTPFailure, ValueError):
+    """Structured discovery failure while retaining existing exception compatibility."""
+
+    def __init__(self, message: str, structured_error: StructuredError):
+        HTTPFailure.__init__(self, message, code=structured_error.code)
+        self.structured_error = structured_error
+
+
 @dataclass(frozen=True)
 class ProviderIdentity:
     id: str
@@ -125,57 +133,59 @@ class ProviderManifest:
 class CompatibilityResult:
     compatible: bool
     reasons: tuple[str, ...]
-    
+    errors: tuple[StructuredError, ...] = ()
+
+    @property
+    def error(self) -> StructuredError | None:
+        return self.errors[0] if self.errors else None
+
+
 def evaluate_compatibility(client_context: dict[str, Any], server_manifest: ProviderManifest) -> CompatibilityResult:
-    reasons = []
-    
-    # 1. Protocol version
+    reasons: list[str] = []
+    errors: list[StructuredError] = []
+
+    def add(code: str, reason: str, *, kind: str, name: str, retryable: bool = False) -> None:
+        reasons.append(reason)
+        errors.append(StructuredError(code, reason, details={"kind": kind, "name": name}, retryable=retryable))
+
     client_apx_version = client_context.get("apx_version", APX_PROTOCOL_VERSION)
-    if server_manifest.apx_version != client_apx_version:
-        if client_apx_version not in server_manifest.compatibility:
-            reasons.append(f"incompatible protocol version: client {client_apx_version}, server {server_manifest.apx_version}")
+    if server_manifest.apx_version != client_apx_version and client_apx_version not in server_manifest.compatibility:
+        add("protocol_version_unsupported",
+            f"incompatible protocol version: client {client_apx_version}, server {server_manifest.apx_version}",
+            kind="protocol", name=server_manifest.apx_version)
 
-    # 2. Capabilities
     client_capabilities = set(client_context.get("capabilities", ()))
-    for req in server_manifest.required_capabilities:
-        if req not in client_capabilities:
-            reasons.append(f"required capability missing: {req}")
+    for required in server_manifest.required_capabilities:
+        if required not in client_capabilities:
+            add("incompatible_requirements", f"required capability missing: {required}", kind="capability", name=required)
 
-    # 3. Server capability forbidden by client
     server_capabilities = set(server_manifest.capabilities)
     for forbidden in client_context.get("forbidden_capabilities", ()):
         if forbidden in server_capabilities:
-            reasons.append(f"client forbids a server requirement: {forbidden}")
-            
-    # 4. Actions
-    server_actions = {a.id for a in server_manifest.actions if a.available}
-    for req in client_context.get("required_actions", ()):
-        if req not in server_actions:
-            reasons.append(f"required action unavailable: {req}")
+            add("incompatible_requirements", f"client forbids a server requirement: {forbidden}", kind="forbidden_capability", name=forbidden)
 
-    # 5. Unavailable actions in server
-    for req in server_manifest.unavailable_actions:
-        if req in client_context.get("required_actions", ()):
-            reasons.append(f"required action unavailable: {req}")
-            
-    # 6. Credentials
+    server_actions = {action.id for action in server_manifest.actions if action.available}
+    for required in client_context.get("required_actions", ()):
+        if required not in server_actions:
+            unavailable = required in server_manifest.unavailable_actions
+            add("provider_unavailable" if unavailable else "incompatible_requirements",
+                f"required action unavailable: {required}", kind="action", name=required, retryable=unavailable)
+
     client_credentials = set(client_context.get("authentication", ()))
-    for req in server_manifest.required_credentials:
-        if req not in client_credentials:
-            reasons.append(f"authentication unavailable: {req}")
+    for required in server_manifest.required_credentials:
+        if required not in client_credentials:
+            add("incompatible_requirements", f"authentication unavailable: {required}", kind="credential", name=required)
 
-    # 7. Permissions
     client_permissions = set(client_context.get("permissions", ()))
-    for req in server_manifest.required_permissions:
-        if req not in client_permissions:
-            reasons.append(f"permission unavailable: {req}")
+    for required in server_manifest.required_permissions:
+        if required not in client_permissions:
+            add("incompatible_requirements", f"permission unavailable: {required}", kind="permission", name=required)
 
-    # 8. Actor Types
     client_actor = client_context.get("actor_type", "unknown")
     if server_manifest.allowed_actor_types and client_actor not in server_manifest.allowed_actor_types:
-        reasons.append(f"actor type incompatible: {client_actor}")
+        add("incompatible_requirements", f"actor type incompatible: {client_actor}", kind="actor", name=client_actor)
 
-    return CompatibilityResult(len(reasons) == 0, tuple(reasons))
+    return CompatibilityResult(not errors, tuple(reasons), tuple(errors))
 
 @dataclass
 class ProviderAction:
@@ -341,19 +351,40 @@ class RemoteProvider:
     def discover(cls, origin: str, *, opener=None, client: HTTPClient|None=None, timeout: int = 10, client_context: dict[str,Any]|None=None) -> "RemoteProvider":
         parsed=urllib.parse.urlparse(origin)
         local=parsed.hostname in {"localhost","127.0.0.1","::1"}
-        if parsed.scheme!="https" and not (parsed.scheme=="http" and local): raise ValueError("remote APX discovery requires HTTPS")
-        if opener is not None:
-            response=opener(__import__("urllib.request",fromlist=["Request"]).Request(origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"}),timeout=timeout); raw=response.read(1024*1024+1)
-        else:
-            http=client or HTTPClient(); raw=http.request("GET",origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"},timeout=timeout).content
-        if len(raw)>1024*1024: raise ValueError("provider manifest exceeds 1 MiB")
-        manifest=ProviderManifest.from_dict(json.loads(raw))
+        if parsed.scheme!="https" and not (parsed.scheme=="http" and local):
+            raise ProviderDiscoveryError("remote APX discovery requires HTTPS", StructuredError(
+                "connection_rejected", "remote APX discovery requires verified HTTPS",
+                details={"kind":"transport"}))
+        try:
+            if opener is not None:
+                response=opener(__import__("urllib.request",fromlist=["Request"]).Request(origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"}),timeout=timeout)
+                raw=response.read(1024*1024+1)
+            else:
+                http=client or HTTPClient(); raw=http.request("GET",origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"},timeout=timeout).content
+        except HTTPFailure as error:
+            retryable=error.code in {"timeout","connection_failure"} or (error.status is not None and error.status >= 500)
+            raise ProviderDiscoveryError(str(error), StructuredError(
+                "provider_unavailable", str(error),
+                details={"kind":"transport", "provider":origin, "transport_code":error.code, "status":error.status},
+                retryable=retryable)) from error
+        if len(raw)>1024*1024:
+            raise ProviderDiscoveryError("provider manifest exceeds 1 MiB", StructuredError(
+                "invalid_request", "provider manifest exceeds 1 MiB", details={"kind":"manifest"}))
+        try:
+            manifest=ProviderManifest.from_dict(json.loads(raw))
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError) as error:
+            raise ProviderDiscoveryError("invalid provider manifest", StructuredError(
+                "invalid_request", "invalid provider manifest", details={"kind":"manifest"})) from error
         errors=validate_provider(manifest)
-        if errors: raise ValueError("invalid provider manifest: "+"; ".join(errors))
-        if client_context:
+        if errors:
+            raise ProviderDiscoveryError("invalid provider manifest: "+"; ".join(errors), StructuredError(
+                "invalid_request", "invalid provider manifest", details={"kind":"manifest", "errors":tuple(errors)}))
+        if client_context is not None:
             compatibility = evaluate_compatibility(client_context, manifest)
             if not compatibility.compatible:
-                raise ValueError("provider is incompatible: "+"; ".join(compatibility.reasons))
+                structured=compatibility.error or StructuredError(
+                    "incompatible_requirements", "provider requirements are incompatible", details={"kind":"compatibility"})
+                raise ProviderDiscoveryError("provider is incompatible: "+"; ".join(compatibility.reasons), structured)
         return cls(origin,manifest,client=client)
 
     def manifest(self) -> ProviderManifest: return self._manifest
