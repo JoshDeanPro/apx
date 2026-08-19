@@ -25,6 +25,7 @@ from .identity import ActorRegistry, DEFAULT_ACTOR, IdentityLinkStore
 from .missions import MissionError, MissionStore
 from .plugins import PluginManager
 from .providers import ActionProvider, ProviderManifest, RemoteProvider, validate_provider
+from .servers import ServerInventory
 from .policy import PolicyEngine, ScopedRule, scope_values
 from .state import SECURITY_STATES, StateStore
 from .system import connection_list, connection_status, scheduler_inspect, scheduler_list, tailscale_status
@@ -334,8 +335,33 @@ class APX:
         auth_config=self.config.get("auth",{})
         return AuthManager(auth_config,self.actors)
 
+    def _server_inventory(self, provider: ActionProvider | RemoteProvider) -> ServerInventory:
+        try:
+            return ServerInventory.from_provider(provider)
+        except Exception as error:
+            structured = getattr(error, "structured_error", None)
+            if not isinstance(structured, StructuredError):
+                structured = StructuredError("provider_unavailable", "server inventory is temporarily unavailable", details={"kind":"server"}, retryable=True)
+            return ServerInventory.unavailable(provider, structured)
+
+    def server_list(self) -> dict[str, Any]:
+        return {"servers": [self._server_inventory(provider).to_dict() for _, provider in sorted(self.providers.items())]}
+
+    def server_inspect(self, server: str) -> dict[str, Any]:
+        provider = self.providers.get(server)
+        if provider is None:
+            raise ActionError(f"unknown APX server {server!r}; known: {', '.join(sorted(self.providers)) or 'none'}")
+        return self._server_inventory(provider).to_dict()
+
+    def server_status(self, server: str) -> dict[str, Any]:
+        inventory = self.server_inspect(server)
+        return {key: inventory[key] for key in ("id", "name", "reference", "status", "health", "protocol_version", "manifest_version", "implementation_version", "error")}
+
     def _register_operational_actions(self) -> None:
         obj=lambda properties,required=():{"type":"object","properties":properties,"required":list(required),"additionalProperties":False}; string={"type":"string"}
+        self.actions.register(RegisteredAction("server.list","List configured APX provider/server inventory without credentials or client-private state",self.server_list,obj({})))
+        self.actions.register(RegisteredAction("server.inspect","Inspect one configured APX server/provider",self.server_inspect,obj({"server":string},("server",))))
+        self.actions.register(RegisteredAction("server.status","Read one APX server/provider health and protocol status",self.server_status,obj({"server":string},("server",))))
         self.actions.register(RegisteredAction("host.connection.list","List configured host connection methods",lambda host:connection_list(self.core.host(host)),obj({"host":string},("host",))))
         self.actions.register(RegisteredAction("host.connection.status","Test host connection methods in fallback order",lambda host:connection_status(self.core.host(host)),obj({"host":string},("host",))))
         self.actions.register(RegisteredAction("tailscale.status","Inspect Tailscale on a host",lambda host:tailscale_status(self.core.host(host)),obj({"host":string},("host",))))
