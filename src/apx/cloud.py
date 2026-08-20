@@ -316,7 +316,10 @@ class APX:
                 from .examples.subscriptions import build_reference_provider
                 self.register_provider(build_reference_provider())
             elif value.get("origin"):
-                self.connect_provider(value["origin"])
+                auth_token = None
+                if value.get("auth_credential"):
+                    auth_token = self.credentials.resolve(value["auth_credential"])
+                self.connect_provider(value["origin"], auth_token=auth_token)
 
     def _secret_backends(self) -> dict[str, Any]:
         backends={}
@@ -552,8 +555,8 @@ class APX:
         for action in provider.actions: self.emit(Event("provider.action_added","apx",{"provider":provider.identity.id,"action":action.name},{}))
         return provider.manifest()
 
-    def connect_provider(self, origin: str, *, opener=None) -> ProviderManifest:
-        remote=RemoteProvider.discover(origin,opener=opener); manifest=remote.manifest()
+    def connect_provider(self, origin: str, *, opener=None, auth_token: str | None = None) -> ProviderManifest:
+        remote=RemoteProvider.discover(origin,opener=opener,auth_token=auth_token); manifest=remote.manifest()
         if manifest.provider.id in self.providers: raise ValueError(f"provider {manifest.provider.id!r} is already connected")
         for item in manifest.actions:
             def invoke(_action=item.id,**inputs):

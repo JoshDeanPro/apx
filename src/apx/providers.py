@@ -371,11 +371,11 @@ def validate_provider(provider: ActionProvider | ProviderManifest) -> list[str]:
 
 class RemoteProvider:
     """Explicitly enrolled HTTP provider; discovery never implies trust or execution."""
-    def __init__(self, origin: str, manifest: ProviderManifest, *, client: HTTPClient|None=None):
-        self.origin=origin.rstrip("/"); self._manifest=manifest; self.client=client or HTTPClient()
+    def __init__(self, origin: str, manifest: ProviderManifest, *, client: HTTPClient|None=None, auth_token: str | None = None):
+        self.origin=origin.rstrip("/"); self._manifest=manifest; self.client=client or HTTPClient(); self._auth_token=auth_token
 
     @classmethod
-    def discover(cls, origin: str, *, opener=None, client: HTTPClient|None=None, timeout: int = 10, client_context: dict[str,Any]|None=None) -> "RemoteProvider":
+    def discover(cls, origin: str, *, opener=None, client: HTTPClient|None=None, timeout: int = 10, client_context: dict[str,Any]|None=None, auth_token: str | None = None) -> "RemoteProvider":
         parsed=urllib.parse.urlparse(origin)
         local=parsed.hostname in {"localhost","127.0.0.1","::1"}
         if parsed.scheme!="https" and not (parsed.scheme=="http" and local):
@@ -383,11 +383,13 @@ class RemoteProvider:
                 "connection_rejected", "remote APX discovery requires verified HTTPS",
                 details={"kind":"transport"}))
         try:
+            discovery_headers={"Accept":"application/apx+json"}
+            if auth_token: discovery_headers["Authorization"]="Bearer "+auth_token
             if opener is not None:
-                response=opener(__import__("urllib.request",fromlist=["Request"]).Request(origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"}),timeout=timeout)
+                response=opener(__import__("urllib.request",fromlist=["Request"]).Request(origin.rstrip("/")+DISCOVERY_PATH,headers=discovery_headers),timeout=timeout)
                 raw=response.read(1024*1024+1)
             else:
-                http=client or HTTPClient(); raw=http.request("GET",origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"},timeout=timeout).content
+                http=client or HTTPClient(); raw=http.request("GET",origin.rstrip("/")+DISCOVERY_PATH,headers=discovery_headers,timeout=timeout).content
         except HTTPFailure as error:
             retryable=error.code in {"timeout","connection_failure"} or (error.status is not None and error.status >= 500)
             raise ProviderDiscoveryError("provider unavailable", StructuredError(
@@ -412,13 +414,15 @@ class RemoteProvider:
                 structured=compatibility.error or StructuredError(
                     "incompatible_requirements", "provider requirements are incompatible", details={"kind":"compatibility"})
                 raise ProviderDiscoveryError("provider is incompatible: "+"; ".join(compatibility.reasons), structured)
-        return cls(origin,manifest,client=client)
+        return cls(origin,manifest,client=client,auth_token=auth_token)
 
     def manifest(self) -> ProviderManifest: return self._manifest
     def health(self)->ComponentHealth: return ComponentHealth(f"provider:{self._manifest.provider.id}","healthy",capabilities=self._manifest.capabilities,metadata={"origin":self.origin,"actions":len(self._manifest.actions)})
 
     def _post(self, path: str, value: dict[str,Any]) -> dict[str,Any]:
-        return self.client.request("POST",self.origin+path,json=value,headers={"Content-Type":"application/apx+json","Accept":"application/apx+json"},idempotent=False).json()
+        headers={"Content-Type":"application/apx+json","Accept":"application/apx+json"}
+        if self._auth_token: headers["Authorization"]="Bearer "+self._auth_token
+        return self.client.request("POST",self.origin+path,json=value,headers=headers,idempotent=False).json()
 
     def prepare_action(self, request: ActionRequest) -> dict[str,Any]: return self._post("/apx/actions/prepare",request.to_dict())
     def execute_action(self, request: ActionRequest) -> dict[str,Any]: return self._post("/apx/actions/execute",request.to_dict())
