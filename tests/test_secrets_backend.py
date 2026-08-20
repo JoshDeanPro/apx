@@ -103,8 +103,7 @@ class VaultwardenBackendTests(unittest.TestCase):
         backend=VaultwardenBackend(run=fake_run)
         ref=CredentialReference("porkbun","dns","vaultwarden","porkbun-token")
         with patch.dict("os.environ",{"BW_SESSION":"unlocked-session-token"}):
-            result=backend.set(ref,"new-value")
-        self.assertEqual(result["status"],"updated")
+            with self.assertRaises(SecretBackendError): backend.set(ref,"new-value")
 
     def test_bw_not_installed_becomes_a_secret_backend_error(self):
         def missing(argv,**kwargs): raise FileNotFoundError("bw")

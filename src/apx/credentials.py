@@ -266,24 +266,10 @@ class VaultwardenBackend:
         return result.stdout.strip()
 
     def set(self, ref: CredentialReference, value: str) -> dict[str, Any]:
-        item=self._find_item(ref.reference)
-        if item is None:
-            template=self._exec(["get","template","item"])
-            if template.returncode!=0: raise SecretBackendError("could not fetch item template from bw CLI")
-            body=json.loads(template.stdout)
-            login_template=self._exec(["get","template","item.login"])
-            login=json.loads(login_template.stdout) if login_template.returncode==0 else {}
-            login["password"]=value
-            body.update({"name":ref.reference,"type":1,"login":login})
-        else:
-            body=item; body.setdefault("login",{})["password"]=value
-        encode=self._run(["bw","encode"],input=json.dumps(body),capture_output=True,text=True,timeout=10)
-        if encode.returncode!=0: raise SecretBackendError("could not encode vault item for bw CLI")
-        verb="edit" if item is not None else "create"
-        target=[item["id"]] if item is not None else []
-        result=self._exec([verb,"item",*target,encode.stdout.strip()])
-        if result.returncode!=0: raise SecretBackendError(result.stderr.strip() or "vault write failed")
-        return {"id":ref.id,"source":self.name,"status":"updated" if item is not None else "created"}
+        # `bw edit/create` requires the encoded item as an argv argument. That
+        # would expose the secret-bearing payload in process listings. Refuse
+        # the unsafe mutation path; use the Bitwarden client directly instead.
+        raise SecretBackendError("Vaultwarden writes through APX are disabled because bw would expose the encoded secret in process arguments")
 
 
 class OpenBaoBackend:

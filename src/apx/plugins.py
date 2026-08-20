@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 
 @dataclass
 class PluginAPI:
-    actions: ActionRegistry
-    events: EventRouter
+    actions: Any
+    events: Any
     cloud: Any
     owner: str
     resources: list[Resource] = field(default_factory=list)
@@ -71,6 +71,38 @@ class _ScopedCredentials:
 
     def redact_text(self, value: str) -> str:
         return self._registry.redact_text(value)
+
+
+class _ScopedPluginActions:
+    """Registration-only action facade; plugins cannot enumerate APX actions."""
+
+    def __init__(self, registry: ActionRegistry):
+        self._registry = registry
+
+    def register(self, action: RegisteredAction) -> None:
+        self._registry.register(action)
+
+
+class _ScopedPluginEvents:
+    """Declaration-scoped event facade without history/error enumeration."""
+
+    def __init__(self, router: EventRouter, listened: tuple[str, ...], emitted: tuple[str, ...], owner: str):
+        self._router = router
+        self._listened = tuple(listened)
+        self._emitted = tuple(emitted)
+        self._owner = owner
+
+    def subscribe(self, pattern: str, listener) -> None:
+        from fnmatch import fnmatchcase
+        if self._listened and not any(fnmatchcase(pattern, allowed) or fnmatchcase(allowed, pattern) for allowed in self._listened):
+            raise PermissionError("plugin event subscription is outside its declared scope")
+        self._router.subscribe(pattern, listener, owner=self._owner)
+
+    def emit(self, event: Event) -> Event:
+        from fnmatch import fnmatchcase
+        if self._emitted and not any(fnmatchcase(event.name, allowed) for allowed in self._emitted):
+            raise PermissionError("plugin event emission is outside its declared scope")
+        return self._router.emit(event)
 
 
 class _ScopedPluginCloud:
@@ -168,17 +200,28 @@ class PluginManager:
         self._document: dict[str, Any] = {}
         self._runtime_active: set[str] = set()
 
-    def _setup(self, name: str, plugin: Any, *, trusted: bool = True) -> None:
+    def _setup(self, name: str, plugin: Any, *, trusted: bool = True, credential_scope: tuple[str, ...] | None = None) -> None:
         try:
             metadata=getattr(plugin,"metadata",None)
             if metadata is None: metadata=PluginMetadata(name,getattr(plugin,"version","unknown"),getattr(plugin,"description",name))
             if isinstance(metadata,dict): metadata=PluginMetadata(**metadata)
             if metadata.apx!="0.1": raise ValueError(f"plugin requires unsupported APX {metadata.apx}")
-            plugin_cloud = self.cloud if trusted else _ScopedPluginCloud(self.cloud, metadata.credentials)
-            api=PluginAPI(self.actions,self.events,plugin_cloud,name,allowed_credentials=metadata.credentials)
+            if trusted:
+                allowed_credentials = metadata.credentials
+            else:
+                allowed_credentials = tuple(credential_scope or ())
+                configured = set(allowed_credentials)
+                if not configured.issubset(self.cloud.credentials.references):
+                    raise ValueError("plugin credential scope references an unconfigured credential")
+                if not set(metadata.credentials).issubset(configured):
+                    raise ValueError("plugin declared credentials outside its operator-granted scope")
+            plugin_cloud = self.cloud if trusted else _ScopedPluginCloud(self.cloud, allowed_credentials)
+            plugin_actions = self.actions if trusted else _ScopedPluginActions(self.actions)
+            plugin_events = self.events if trusted else _ScopedPluginEvents(self.events, metadata.events_listened, metadata.events_emitted, name)
+            api=PluginAPI(plugin_actions,plugin_events,plugin_cloud,name,allowed_credentials=allowed_credentials)
             self.metadata[name]=metadata
             if hasattr(plugin,"setup"): plugin.setup(api)
-            elif hasattr(plugin,"register"): plugin.register(self.actions)
+            elif hasattr(plugin,"register"): plugin.register(plugin_actions)
             else: raise TypeError("plugin must implement setup(api)")
             self.resources.extend(api.resources); self.capabilities.extend(api.capabilities); self.contexts.extend(api.contexts)
             self.resource_discoverers.extend((name,fn) for fn in api.resource_discoverers)
@@ -244,7 +287,12 @@ class PluginManager:
                 self.metadata.setdefault(point.name, PluginMetadata(point.name, str(version), "External plugin; explicit trust required"))
                 self.health.append({"name": point.name, "ok": False, "status": "trust_required"})
                 continue
-            try: self._setup(point.name,point.load()(),trusted=False)
+            configured_credentials = settings_for_point.get("credentials", settings_for_point.get("credential", ()))
+            if isinstance(configured_credentials, str):
+                configured_credentials = (configured_credentials,)
+            else:
+                configured_credentials = tuple(str(item) for item in (configured_credentials or ()))
+            try: self._setup(point.name,point.load()(),trusted=False,credential_scope=configured_credentials)
             except Exception as error: self.health.append({"name":point.name,"ok":False,"error":self.cloud.credentials.redact_text(str(error))})
         return [item["name"] for item in self.health if item["ok"]]
 

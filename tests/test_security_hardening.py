@@ -11,7 +11,7 @@ from apx.credentials import redact_public_value
 from apx.events import EventRouter
 from apx.files import normalized
 from apx.httpserver import serve
-from apx.plugins import PluginAPI
+from apx.plugins import PluginAPI, _ScopedPluginCloud
 from apx.providers import ActionProvider, HTTPProviderAdapter
 
 
@@ -56,6 +56,25 @@ def test_plugin_credential_access_is_declared_and_scoped():
     assert api.credential("allowed") == "allowed"
     with pytest.raises(PermissionError):
         api.credential("unrelated")
+
+
+def test_external_plugin_cloud_uses_operator_scope_not_plugin_metadata():
+    registry = SimpleNamespace(
+        references={"operator-granted": object()},
+        resolve=lambda credential_id: credential_id,
+        health=lambda: [{"id": "operator-granted"}],
+        redact=lambda value: value,
+        redact_text=lambda value: value,
+    )
+    manager = SimpleNamespace(
+        get=lambda credential_id: {"id": credential_id, "value": "<redacted>"},
+        health=lambda credential_id: {"id": credential_id},
+        reveal=lambda credential_id, caller_scope=None: {"id": credential_id, "value": "scoped"},
+    )
+    facade = _ScopedPluginCloud(cast(Any, SimpleNamespace(credentials=registry, secrets=manager)), ("operator-granted",))
+    assert facade.credentials.health() == [{"id": "operator-granted"}]
+    with pytest.raises(PermissionError):
+        facade.secrets.reveal("plugin-guessed")
 
 
 def test_protected_filesystem_targets_are_rejected():
