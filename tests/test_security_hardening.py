@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import pytest
 
-from apx.axp import ActionResult
+from apx.axp import ActionResult, PreparedAction
 from apx.actions import ActionRegistry
 from apx.credentials import redact_public_value
 from apx.events import EventRouter
@@ -36,12 +36,31 @@ def test_http_action_results_are_minimum_disclosure():
         action="test.read",
         ok=True,
         result={"summary": "ok", "api_key": "secret-value", "nested": {"cookie": "secret-cookie"}},
+        request_id="request-1",
         execution={"argv": ["cat", "/private/path"]},
     )
     wire = HTTPProviderAdapter._public_wire(result)
     assert "api_key" not in wire["result"]
     assert "nested" not in wire["result"]
     assert "execution" not in wire
+    assert wire["request_id"] == "request-1"
+
+
+def test_public_prepared_actions_keep_protocol_state_fields():
+    prepared = PreparedAction(
+        action="test.change",
+        created_at="2026-01-01T00:00:00+00:00",
+        authoritative_state_version="state-1",
+        authoritative_state={"version": "state-1"},
+        preconditions=({"kind": "version", "value": "state-1"},),
+        resolved_terms={"scope": "project"},
+    )
+    wire = HTTPProviderAdapter._public_wire(prepared)
+    assert wire["type"] == "action.prepared"
+    assert wire["created_at"] == prepared.created_at
+    assert wire["authoritative_state_version"] == "state-1"
+    assert wire["preconditions"]
+    assert wire["resolved_terms"] == {"scope": "project"}
 
 
 def test_plugin_credential_access_is_declared_and_scoped():

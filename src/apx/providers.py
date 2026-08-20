@@ -444,6 +444,7 @@ class HTTPProviderAdapter:
         if isinstance(value, ActionResult):
             result = value.compact()
             result.update({"apx": APX_PROTOCOL_VERSION, "type": "action.result"})
+            result["request_id"] = value.request_id
             result.pop("execution", None)
             if value.receipt:
                 result["receipt_id"] = value.receipt.receipt_id
@@ -453,7 +454,8 @@ class HTTPProviderAdapter:
             result = {key: getattr(value, key) for key in (
                 "action", "target", "effect", "confirmation_required", "cost", "reversible",
                 "reverse_action", "expires_at", "request_id", "provider", "side_effects",
-                "provider_conditions", "confirmation_terms", "prepared_action_id", "authoritative_state_version", "status",
+                "provider_conditions", "confirmation_terms", "prepared_action_id", "created_at",
+                "authoritative_state_version", "authoritative_state", "preconditions", "resolved_terms", "status",
             )}
             result.update({"apx": APX_PROTOCOL_VERSION, "type": "action.prepared"})
             return redact_public_value(result)
