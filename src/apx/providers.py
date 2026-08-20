@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.parse
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -14,9 +15,22 @@ from .axp import (
     ActionDefinition, ActionReceipt, ActionRequest, ActionResult, ActorDescriptor,
     CredentialHandle, PreparedAction, Resource, StructuredError, ActionRequirements, APX_PROTOCOL_VERSION
 )
-from .credentials import SENSITIVE_KEYS
+from .credentials import SENSITIVE_KEYS, redact_public_value
 from .http import HTTPClient, HTTPFailure
 from .health import ComponentHealth
+
+def _public_value(value: Any, key: str = "") -> Any:
+    lowered = key.lower()
+    if lowered in {"default", "example", "examples", "value", "raw", "content"} or any(marker in lowered for marker in SENSITIVE_KEYS):
+        return "<redacted>"
+    if isinstance(value, dict):
+        return {str(k): _public_value(v, str(k)) for k, v in value.items() if str(k).lower() not in {"authorization", "set-cookie", "cookie"}}
+    if isinstance(value, (list, tuple)):
+        return [_public_value(item, key) for item in value]
+    if isinstance(value, str):
+        return re.sub(r"(?i)(https?://)([^/@\s]+):([^/@\s]+)@", r"\1<redacted>@", value)
+    return value
+
 
 DISCOVERY_PATH = "/.well-known/apx"
 
@@ -72,6 +86,7 @@ class ProviderManifest:
         if set(self.extensions)-OPTIONAL_EXTENSIONS: raise ValueError("unknown optional extension")
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialize a manifest for a trusted local caller; protocol responses use `public_dict`."""
         return {
             "apx_version":self.apx_version,"manifest_version":self.manifest_version,
             "provider":asdict(self.provider),"resources":[item.to_dict() for item in self.resources],
@@ -83,6 +98,18 @@ class ProviderManifest:
             "transports":list(self.transports),"compatibility":list(self.compatibility),
             "profiles":list(self.profiles),"metadata":self.metadata,"extensions":self.extensions,
         }
+
+    def public_dict(self) -> dict[str, Any]:
+        """Minimum-disclosure wire serialization for unauthenticated discovery."""
+        value = self.to_dict()
+        value["provider"] = {"id": self.provider.id, "name": self.provider.name, "provenance": self.provider.provenance}
+        value["authentication"] = [_public_value(item) for item in self.authentication]
+        value["actions"] = [_public_value(item.to_dict()) for item in self.actions]
+        value["resources"] = [_public_value(item.to_dict()) for item in self.resources]
+        value["required_credentials"] = ["credential_required"] if self.required_credentials else []
+        value["metadata"] = {"version": self.metadata.get("version")} if self.metadata.get("version") is not None else {}
+        value["transports"] = [{key: item[key] for key in ("type", "version", "protocol_endpoint") if key in item} for item in self.transports]
+        return value
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "ProviderManifest":
@@ -344,11 +371,11 @@ def validate_provider(provider: ActionProvider | ProviderManifest) -> list[str]:
 
 class RemoteProvider:
     """Explicitly enrolled HTTP provider; discovery never implies trust or execution."""
-    def __init__(self, origin: str, manifest: ProviderManifest, *, client: HTTPClient|None=None):
-        self.origin=origin.rstrip("/"); self._manifest=manifest; self.client=client or HTTPClient()
+    def __init__(self, origin: str, manifest: ProviderManifest, *, client: HTTPClient|None=None, auth_token: str | None = None):
+        self.origin=origin.rstrip("/"); self._manifest=manifest; self.client=client or HTTPClient(); self._auth_token=auth_token
 
     @classmethod
-    def discover(cls, origin: str, *, opener=None, client: HTTPClient|None=None, timeout: int = 10, client_context: dict[str,Any]|None=None) -> "RemoteProvider":
+    def discover(cls, origin: str, *, opener=None, client: HTTPClient|None=None, timeout: int = 10, client_context: dict[str,Any]|None=None, auth_token: str | None = None) -> "RemoteProvider":
         parsed=urllib.parse.urlparse(origin)
         local=parsed.hostname in {"localhost","127.0.0.1","::1"}
         if parsed.scheme!="https" and not (parsed.scheme=="http" and local):
@@ -356,16 +383,18 @@ class RemoteProvider:
                 "connection_rejected", "remote APX discovery requires verified HTTPS",
                 details={"kind":"transport"}))
         try:
+            discovery_headers={"Accept":"application/apx+json"}
+            if auth_token: discovery_headers["Authorization"]="Bearer "+auth_token
             if opener is not None:
-                response=opener(__import__("urllib.request",fromlist=["Request"]).Request(origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"}),timeout=timeout)
+                response=opener(__import__("urllib.request",fromlist=["Request"]).Request(origin.rstrip("/")+DISCOVERY_PATH,headers=discovery_headers),timeout=timeout)
                 raw=response.read(1024*1024+1)
             else:
-                http=client or HTTPClient(); raw=http.request("GET",origin.rstrip("/")+DISCOVERY_PATH,headers={"Accept":"application/apx+json"},timeout=timeout).content
+                http=client or HTTPClient(); raw=http.request("GET",origin.rstrip("/")+DISCOVERY_PATH,headers=discovery_headers,timeout=timeout).content
         except HTTPFailure as error:
             retryable=error.code in {"timeout","connection_failure"} or (error.status is not None and error.status >= 500)
-            raise ProviderDiscoveryError(str(error), StructuredError(
-                "provider_unavailable", str(error),
-                details={"kind":"transport", "provider":origin, "transport_code":error.code, "status":error.status},
+            raise ProviderDiscoveryError("provider unavailable", StructuredError(
+                "provider_unavailable", "provider unavailable",
+                details={"kind":"transport", "transport_code":error.code, "status":error.status},
                 retryable=retryable)) from error
         if len(raw)>1024*1024:
             raise ProviderDiscoveryError("provider manifest exceeds 1 MiB", StructuredError(
@@ -377,21 +406,23 @@ class RemoteProvider:
                 "invalid_request", "invalid provider manifest", details={"kind":"manifest"})) from error
         errors=validate_provider(manifest)
         if errors:
-            raise ProviderDiscoveryError("invalid provider manifest: "+"; ".join(errors), StructuredError(
-                "invalid_request", "invalid provider manifest", details={"kind":"manifest", "errors":tuple(errors)}))
+            raise ProviderDiscoveryError("invalid provider manifest", StructuredError(
+                "invalid_request", "invalid provider manifest", details={"kind":"manifest"}))
         if client_context is not None:
             compatibility = evaluate_compatibility(client_context, manifest)
             if not compatibility.compatible:
                 structured=compatibility.error or StructuredError(
                     "incompatible_requirements", "provider requirements are incompatible", details={"kind":"compatibility"})
                 raise ProviderDiscoveryError("provider is incompatible: "+"; ".join(compatibility.reasons), structured)
-        return cls(origin,manifest,client=client)
+        return cls(origin,manifest,client=client,auth_token=auth_token)
 
     def manifest(self) -> ProviderManifest: return self._manifest
     def health(self)->ComponentHealth: return ComponentHealth(f"provider:{self._manifest.provider.id}","healthy",capabilities=self._manifest.capabilities,metadata={"origin":self.origin,"actions":len(self._manifest.actions)})
 
     def _post(self, path: str, value: dict[str,Any]) -> dict[str,Any]:
-        return self.client.request("POST",self.origin+path,json=value,headers={"Content-Type":"application/apx+json","Accept":"application/apx+json"},idempotent=False).json()
+        headers={"Content-Type":"application/apx+json","Accept":"application/apx+json"}
+        if self._auth_token: headers["Authorization"]="Bearer "+self._auth_token
+        return self.client.request("POST",self.origin+path,json=value,headers=headers,idempotent=False).json()
 
     def prepare_action(self, request: ActionRequest) -> dict[str,Any]: return self._post("/apx/actions/prepare",request.to_dict())
     def execute_action(self, request: ActionRequest) -> dict[str,Any]: return self._post("/apx/actions/execute",request.to_dict())
@@ -407,43 +438,70 @@ class HTTPProviderAdapter:
             session=ProviderSession(provider)
         self.session=session
 
+    @staticmethod
+    def _public_wire(value: Any) -> dict[str, Any]:
+        """Serialize a response without exposing diagnostics or secret inputs."""
+        if isinstance(value, ActionResult):
+            result = value.compact()
+            result.update({"apx": APX_PROTOCOL_VERSION, "type": "action.result"})
+            result["request_id"] = value.request_id
+            result.pop("execution", None)
+            if value.receipt:
+                result["receipt_id"] = value.receipt.receipt_id
+                result["receipt"] = redact_public_value(value.receipt.to_dict())
+            return redact_public_value(result)
+        if isinstance(value, PreparedAction):
+            result = {key: getattr(value, key) for key in (
+                "action", "target", "effect", "confirmation_required", "cost", "reversible",
+                "reverse_action", "expires_at", "request_id", "provider", "side_effects",
+                "provider_conditions", "confirmation_terms", "prepared_action_id", "created_at",
+                "authoritative_state_version", "authoritative_state", "preconditions", "resolved_terms", "status",
+            )}
+            result.update({"apx": APX_PROTOCOL_VERSION, "type": "action.prepared"})
+            return redact_public_value(result)
+        if hasattr(value, "to_dict"):
+            return redact_public_value(value.to_dict())
+        return redact_public_value(value)
+
     def handle(self, method: str, path: str, body: dict[str,Any] | None = None) -> tuple[int,dict[str,str],dict[str,Any]]:
         headers={"Content-Type":"application/apx+json","Cache-Control":"no-store"}
-        if method=="GET" and path==DISCOVERY_PATH: return 200,headers,self.provider.manifest().to_dict()
+        if method=="GET" and path==DISCOVERY_PATH:
+            manifest = self.provider.public_manifest() if hasattr(self.provider, "public_manifest") else self.provider.manifest()
+            return 200,headers,manifest.public_dict()
         if method=="GET" and path.startswith("/apx/v0.1/status/"):
             result=self.session.status(path.rsplit("/",1)[-1]) if self.session else None
-            return (200,headers,result.to_dict()) if result else (404,headers,{"error":{"code":"invalid_request","message":"request not found"}})
+            return (200,headers,self._public_wire(result)) if result else (404,headers,{"error":{"code":"invalid_request","message":"request not found"}})
         if method=="GET" and path.startswith("/apx/v0.1/operations/"):
             result=self.session.operation_status(path.rsplit("/",1)[-1]) if self.session else None
-            return (200,headers,result.to_dict()) if result else (404,headers,{"error":{"code":"invalid_request","message":"operation not found"}})
+            return (200,headers,self._public_wire(result)) if result else (404,headers,{"error":{"code":"invalid_request","message":"operation not found"}})
         if method=="GET" and path.startswith("/apx/v0.1/receipts/"):
             receipt=self.session.receipt(path.rsplit("/",1)[-1]) if self.session else self.provider.get_receipt(path.rsplit("/",1)[-1])
-            return (200,headers,receipt.to_dict()) if receipt else (404,headers,{"error":{"code":"invalid_request","message":"receipt not found"}})
+            return (200,headers,self._public_wire(receipt)) if receipt else (404,headers,{"error":{"code":"invalid_request","message":"receipt not found"}})
         if method=="GET" and path.startswith("/apx/receipts/"):
             receipt=self.provider.get_receipt(path.rsplit("/",1)[-1])
-            return (200,headers,receipt.to_dict()) if receipt else (404,headers,{"error":{"code":"receipt.not_found"}})
+            return (200,headers,self._public_wire(receipt)) if receipt else (404,headers,{"error":{"code":"receipt.not_found"}})
         if method=="POST" and path in {"/apx/actions/prepare","/apx/actions/execute"}:
             try: request=ActionRequest.from_dict(body or {})
-            except (TypeError,ValueError,KeyError) as error: return 400,headers,{"error":{"code":"invalid_request","message":str(error)}}
+            except (TypeError,ValueError,KeyError): return 400,headers,{"error":{"code":"invalid_request","message":"request does not match the APX action request shape"}}
             if path.endswith("prepare"):
                 prepared=self.preparer(request.action,actor=request.actor,target=request.target,**request.input)
-                return 200,headers,prepared.to_dict()
+                return 200,headers,self._public_wire(prepared)
             result=self.executor(request)
             if result.receipt: self.provider.receipts[result.receipt.receipt_id]=result.receipt
             status=200 if result.ok else (401 if result.status=="awaiting-approval" else 403 if result.error and result.error.code=="permission_denied" else 400)
-            return status,headers,result.to_dict()
+            return status,headers,self._public_wire(result)
         if method=="POST" and path in {"/apx/v0.1/prepare","/apx/v0.1/execute"} and self.session:
             try: request=ActionRequest.from_dict(body or {})
-            except (TypeError,ValueError,KeyError) as error: return 400,headers,{"error":{"code":"invalid_request","message":str(error)}}
+            except (TypeError,ValueError,KeyError): return 400,headers,{"error":{"code":"invalid_request","message":"request does not match the APX action request shape"}}
             value=self.session.prepare(request) if path.endswith("prepare") else self.session.execute(request)
-            return 200,headers,value.to_dict()
+            return 200,headers,self._public_wire(value)
         if method=="POST" and path=="/apx/v0.1/authorize" and self.session:
             result=self.session.authorize((body or {}).get("prepared_action_id",""),(body or {}).get("confirmation",{}))
-            return 200,headers,result.to_dict()
+            return 200,headers,self._public_wire(result)
         if method=="POST" and path=="/apx/v0.1/cancel" and self.session:
-            return 200,headers,self.session.cancel((body or {}).get("prepared_action_id","")).to_dict()
+            return 200,headers,self._public_wire(self.session.cancel((body or {}).get("prepared_action_id","")))
         if method=="POST" and path.startswith("/apx/v0.1/reverse/") and self.session:
             try: request=ActionRequest.from_dict(body or {})
-            except (TypeError,ValueError,KeyError) as error: return 400,headers,{"error":{"code":"invalid_request","message":str(error)}}
-            return 200,headers,self.session.reverse(path.rsplit("/",1)[-1],request).to_dict()
+            except (TypeError,ValueError,KeyError): return 400,headers,{"error":{"code":"invalid_request","message":"request does not match the APX action request shape"}}
+            return 200,headers,self._public_wire(self.session.reverse(path.rsplit("/",1)[-1],request))
         return 404,headers,{"error":{"code":"not_found"}}

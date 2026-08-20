@@ -130,7 +130,9 @@ class ProviderPolicyAndHTTPTests(unittest.TestCase):
             self.assertEqual(status,200); self.assertEqual(manifest["provider"]["id"],"reference.local")
             request=ActionRequest("subscription.resume",actor="agent:test",auth_context={"principal_id":"agent:test"},confirmation={"level":"confirm","confirmed":True,"authorization_id":"http-1"})
             status,_,result=adapter.handle("POST","/apx/actions/execute",request.to_dict())
-            self.assertEqual(status,200); receipt_id=result["receipt"]["receipt_id"]
+            self.assertEqual(status,200); receipt_id=result["receipt_id"]
+            self.assertIn("receipt", result)
+            self.assertNotIn("execution", result)
             self.assertEqual(adapter.handle("GET",f"/apx/receipts/{receipt_id}")[2]["status"],"completed")
 
 

@@ -1,21 +1,17 @@
-# Security Policy
+# APX Security Model
 
-APX provides permissioned action capability and capability fabric execution. Security and privacy are core requirements.
+APX uses a zero-trust, minimum-disclosure model:
 
-## Reporting a Vulnerability
+- Local APX HTTP serving is loopback-only and requires an explicitly supplied `APX_SERVER_TOKEN`; this stdlib listener does not provide remote TLS.
+- Provider discovery is public capability metadata only; credentials, local paths, unrelated providers, devices, plugins, and client state are not part of the public manifest.
+- Credential values stay in credential backends and are resolved only for the authorized action that needs them. Credential references are not secret values.
+- External plugins receive only credential references explicitly granted in their APX configuration; plugin-declared metadata cannot expand that scope. APX refuses Keychain and Vaultwarden writes when the available CLI would expose secret material in process arguments.
+- Child processes receive a minimal environment by default. SSH agent access is passed only to SSH transport when explicitly present.
+- Ordinary errors are mapped to safe protocol messages; local checks and logs are not a sandbox.
+- Python in-process plugins/providers are trusted-code boundaries, not containment boundaries. Third-party entry points are metadata-only until explicitly configured with `enabled=true` and `trusted=true`; even then they receive a narrow credential facade. Untrusted code still requires an OS/process/container sandbox that APX does not currently mandate or provide.
+- APX refuses file actions targeting common credential stores, SSH keys, cookies, and private-key extensions by default. This is a floor, not a replacement for explicit project/workspace roots.
+- Filesystem, network, SSH, policy, confirmation, and actor restrictions remain enforced by the existing runtime and OS.
 
-Please report security vulnerabilities responsibly through private channels (such as GitHub Security Advisories) rather than public issues or discussion threads.
+Run `apx security check` for a fast, offline inspection of configuration exposure, state-file permissions, plaintext endpoints, public binds, enabled plugins, and debug mode. Findings are warnings or failures with an actionable next step; the command never resolves or prints secrets.
 
-Include:
-- Summary of the vulnerability and impact
-- Steps to reproduce or a minimal proof of concept
-- Affected versions or components
-
-## Scope
-
-Key security areas:
-- **Permission & Policy Enforcement**: Correct evaluation of permissions, roles, and grants.
-- **Confirmation Verification**: Enforcing confirmations on mutating and high-risk actions.
-- **Credential Protection**: Proper redaction of secrets in logs, receipts, and event streams.
-- **Protocol Conformance**: Schema validation and verification of requests, results, and provider manifests.
-- **Receipt Integrity**: Verifiable digests and signature integrity.
+Report security issues privately through the repository's configured GitHub security reporting channel. Do not include credentials, tokens, private keys, personal data, or private host details in issues or pull requests.

@@ -8,6 +8,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from .axp import APX_PROTOCOL_VERSION, StructuredError, resource_ref
 from .health import ComponentHealth
+from .credentials import redact_public_value
 from .providers import ActionProvider, ProviderManifest, RemoteProvider
 
 
@@ -26,7 +27,7 @@ def _safe_endpoint(value: str | None) -> str | None:
     netloc = hostname
     if parsed.port:
         netloc += f":{parsed.port}"
-    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, ""))
+    return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,17 @@ class ServerInventory:
     @classmethod
     def from_provider(cls, provider: ProviderLike) -> "ServerInventory":
         manifest: ProviderManifest = provider.manifest()
-        health = provider.health()
+        raw_health = provider.health()
+        # RemoteProvider health currently includes its configured origin as
+        # diagnostic metadata. Inventory is a narrow operator view, so retain
+        # only bounded health facts and never echo the full origin/path/query.
+        health = ComponentHealth(
+            raw_health.component,
+            raw_health.status,
+            redact_public_value(raw_health.detail),
+            tuple(raw_health.capabilities),
+            {key: redact_public_value(value) for key, value in raw_health.metadata.items() if key in {"actions", "capabilities"}},
+        )
         implementation_version = manifest.metadata.get("version") if isinstance(manifest.metadata, dict) else None
         if implementation_version is not None and not isinstance(implementation_version, str):
             implementation_version = str(implementation_version)
@@ -74,7 +85,7 @@ class ServerInventory:
             available_actions=tuple(sorted(action.id for action in manifest.actions if action.available)),
             unavailable_actions=tuple(sorted(manifest.unavailable_actions)),
             capabilities=tuple(sorted(manifest.capabilities)),
-            required_credentials=tuple(sorted(manifest.required_credentials)),
+            required_credentials=("credential_required",) if manifest.required_credentials else (),
             required_permissions=tuple(sorted(manifest.required_permissions)),
             allowed_actor_types=tuple(sorted(manifest.allowed_actor_types)),
         )

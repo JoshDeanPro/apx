@@ -35,6 +35,13 @@ class CloudProviderViewTests(unittest.TestCase):
         manifest = view.manifest()
         self.assertTrue(any(r.id == "host:test" for r in manifest.resources))
 
+    def test_public_manifest_excludes_private_resources_and_namespaces(self):
+        view = CloudProviderView(self.cloud)
+        manifest = view.public_manifest()
+        action_ids = {a.id for a in manifest.actions}
+        self.assertFalse(any(name.startswith(("host.", "project.", "secret.", "credential.")) for name in action_ids))
+        self.assertEqual(manifest.resources, ())
+
     def test_receipts_start_empty_and_are_gettable(self):
         view = CloudProviderView(self.cloud)
         self.assertIsNone(view.get_receipt("nope"))

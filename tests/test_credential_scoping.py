@@ -27,11 +27,12 @@ class CredentialScopingTests(unittest.TestCase):
 
     def tearDown(self): self.temp.cleanup()
 
-    def test_agent_may_reveal_only_the_credential_its_scope_names(self):
+    def test_agent_cannot_reveal_raw_credentials_even_with_scope(self):
         with mock.patch.dict("os.environ", {"CF_TOKEN_TEST": "abc123"}):
-            allowed = self.cloud.run("secret.reveal", actor="agent:deployer", id="cloudflare_token")
-        self.assertTrue(allowed.ok, allowed.error)
-        self.assertEqual(allowed.result["value"], "abc123")
+            denied = self.cloud.run("secret.reveal", actor="agent:deployer", id="cloudflare_token")
+        self.assertFalse(denied.ok)
+        self.assertEqual(denied.error.code, "permission_denied")
+        self.assertNotIn("abc123", str(denied.to_dict()))
 
     def test_agent_cannot_reveal_a_different_credential(self):
         with mock.patch.dict("os.environ", {"OTHER_TEST": "xyz"}):
