@@ -87,7 +87,7 @@ def _main(argv: list[str] | None = None) -> int:
     security_p.add_argument("verb", nargs="?", default="check", choices=["check"])
     security_p.add_argument("--json", action="store_true")
 
-    serve = sub.add_parser("serve", help="expose full action registry over HTTP (APX Provider protocol)")
+    serve = sub.add_parser("serve", help="expose the action registry over authenticated loopback HTTP")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8420)
 

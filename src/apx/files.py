@@ -9,7 +9,21 @@ from pathlib import Path
 from typing import Iterator
 
 
-def normalized(path: str | Path) -> Path: return Path(path).expanduser().resolve(strict=False)
+_PRIVATE_NAMES = frozenset({
+    ".env", ".ssh", ".aws", ".azure", ".gcloud", ".kube", ".docker",
+    "keychains", "login.keychain-db", "cookies", "cookies.sqlite",
+})
+
+
+def normalized(path: str | Path) -> Path:
+    """Canonicalize a path and reject common credential/private-data targets."""
+    target = Path(path).expanduser().resolve(strict=False)
+    lowered_parts = {part.lower() for part in target.parts}
+    if lowered_parts & _PRIVATE_NAMES or target.name.lower() in {"id_rsa", "id_ed25519", "known_hosts"}:
+        raise ValueError("path targets a protected credential or private-data location")
+    if target.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}:
+        raise ValueError("path targets protected key material")
+    return target
 
 
 def bounded_read(path: str | Path, *, max_bytes: int=1024*1024) -> bytes:

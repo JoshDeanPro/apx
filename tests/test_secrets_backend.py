@@ -44,7 +44,7 @@ class KeychainBackendTests(unittest.TestCase):
             return SimpleNamespace(returncode=0,stdout="",stderr="")
         backend=KeychainBackend(run=fake_run)
         ref=CredentialReference("porkbun","dns","keychain","porkbun-token")
-        self.assertEqual(backend.set(ref,"abc123")["status"],"updated")
+        with self.assertRaises(SecretBackendError): backend.set(ref,"abc123")
         self.assertTrue(backend.health(ref)["available"])
         self.assertEqual(backend.reveal(ref),"kv-value")
         self.assertTrue(all(argv[0]=="/usr/bin/security" for argv in calls))
@@ -85,8 +85,8 @@ class VaultwardenBackendTests(unittest.TestCase):
             self.assertTrue(backend.health(ref)["available"])
             self.assertEqual(backend.reveal(ref),"kv-value")
         self.assertTrue(all(argv[0]=="bw" for argv in calls))
-        self.assertTrue(all("--session" in argv for argv in calls))
-        self.assertTrue(all("unlocked-session-token" in argv for argv in calls))
+        self.assertTrue(all("--session" not in argv for argv in calls))
+        self.assertTrue(all("unlocked-session-token" not in argv for argv in calls))
 
     def test_set_edits_existing_item(self):
         from types import SimpleNamespace

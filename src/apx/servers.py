@@ -8,6 +8,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from .axp import APX_PROTOCOL_VERSION, StructuredError, resource_ref
 from .health import ComponentHealth
+from .credentials import redact_public_value
 from .providers import ActionProvider, ProviderManifest, RemoteProvider
 
 
@@ -55,7 +56,17 @@ class ServerInventory:
     @classmethod
     def from_provider(cls, provider: ProviderLike) -> "ServerInventory":
         manifest: ProviderManifest = provider.manifest()
-        health = provider.health()
+        raw_health = provider.health()
+        # RemoteProvider health currently includes its configured origin as
+        # diagnostic metadata. Inventory is a narrow operator view, so retain
+        # only bounded health facts and never echo the full origin/path/query.
+        health = ComponentHealth(
+            raw_health.component,
+            raw_health.status,
+            redact_public_value(raw_health.detail),
+            tuple(raw_health.capabilities),
+            {key: redact_public_value(value) for key, value in raw_health.metadata.items() if key in {"actions", "capabilities"}},
+        )
         implementation_version = manifest.metadata.get("version") if isinstance(manifest.metadata, dict) else None
         if implementation_version is not None and not isinstance(implementation_version, str):
             implementation_version = str(implementation_version)

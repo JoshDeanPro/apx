@@ -23,6 +23,7 @@ from __future__ import annotations
 import hmac
 import json
 import os
+
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -147,15 +148,21 @@ def make_handler(adapter: HTTPProviderAdapter, *, allowed_origins: tuple[str, ..
 
 def serve(cloud: APX, *, host: str = "127.0.0.1", port: int = 8420, allowed_origins: tuple[str, ...] = DEFAULT_ALLOWED_ORIGINS, bearer_token: str | None = None) -> None:
     loopback = host in {"127.0.0.1", "localhost", "::1"}
+    if not loopback:
+        # This stdlib server has no TLS implementation. A bearer token over
+        # plaintext HTTP is still exposed to the network, so do not offer it as
+        # a remote transport. Put APX behind an explicitly configured TLS proxy
+        # or use a future authenticated transport instead.
+        raise ValueError("APX HTTP serving is loopback-only; use a verified TLS reverse proxy for remote access")
     bearer_token = bearer_token or os.environ.get("APX_SERVER_TOKEN")
-    if not loopback and not bearer_token:
-        raise ValueError("non-loopback APX serving requires APX_SERVER_TOKEN or an explicit bearer token")
+    if not bearer_token:
+        raise ValueError("APX HTTP serving requires APX_SERVER_TOKEN; secrets are never generated or printed by the server")
     view = CloudProviderView(cloud, url=f"http://{host}:{port}")
     adapter = HTTPProviderAdapter(view, executor=cloud.execute, preparer=cloud.prepare)
     server = ThreadingHTTPServer((host, port), make_handler(adapter, allowed_origins=allowed_origins, bearer_token=bearer_token))
     action_count = len(cloud.actions.list())
-    print(f"apx: serving {action_count} actions over HTTP on http://{host}:{port} "
-          f"(discovery at {DISCOVERY_PATH}) -- Ctrl-C to stop")
+    print(f"apx: serving {action_count} actions over authenticated loopback HTTP on http://{host}:{port} "
+          f"(discovery at {DISCOVERY_PATH}) -- bearer authentication enabled -- Ctrl-C to stop")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

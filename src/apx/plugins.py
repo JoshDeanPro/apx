@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 class PluginAPI:
     actions: ActionRegistry
     events: EventRouter
-    cloud: "APX"
+    cloud: Any
     owner: str
     resources: list[Resource] = field(default_factory=list)
     capabilities: list[Capability] = field(default_factory=list)
@@ -29,6 +29,7 @@ class PluginAPI:
     resource_discoverers: list[Callable[[],Iterable[Resource]]] = field(default_factory=list)
     capability_discoverers: list[Callable[[str],Iterable[Capability]]] = field(default_factory=list)
     context_providers: list[Callable[[],Iterable[Context]]] = field(default_factory=list)
+    allowed_credentials: tuple[str, ...] | None = None
 
     def register_action(self, action: RegisteredAction) -> None: self.actions.register(action)
     def subscribe(self, pattern: str, listener) -> None: self.events.subscribe(pattern,listener,owner=self.owner)
@@ -40,9 +41,79 @@ class PluginAPI:
     def discover_capabilities(self, discoverer: Callable[[str],Iterable[Capability]]) -> None: self.capability_discoverers.append(discoverer)
     def provide_context(self, provider: Callable[[],Iterable[Context]]) -> None: self.context_providers.append(provider)
     def credential(self, credential_id: str) -> str:
+        if self.allowed_credentials is not None and credential_id not in self.allowed_credentials:
+            raise PermissionError("plugin credential access is outside its declared scope")
         # Provider actions resolve through the configured secret backend (environment,
         # Keychain, OpenBao), never directly through environment-only legacy lookup.
         return self.cloud.secrets.reveal(credential_id)["value"]
+
+
+class _ScopedCredentials:
+    """Read-only credential facade for a plugin's declared credential scope."""
+
+    def __init__(self, registry, allowed: tuple[str, ...]):
+        self._registry = registry
+        self._allowed = frozenset(allowed)
+
+    def _check(self, credential_id: str) -> None:
+        if credential_id not in self._allowed:
+            raise PermissionError("plugin credential access is outside its declared scope")
+
+    def resolve(self, credential_id: str) -> str:
+        self._check(credential_id)
+        return self._registry.resolve(credential_id)
+
+    def health(self) -> list[dict[str, Any]]:
+        return [item for item in self._registry.health() if item.get("id") in self._allowed]
+
+    def redact(self, value: Any) -> Any:
+        return self._registry.redact(value)
+
+    def redact_text(self, value: str) -> str:
+        return self._registry.redact_text(value)
+
+
+class _ScopedPluginCloud:
+    """Minimal cloud facade for explicitly trusted external plugins.
+
+    In-process plugins remain trusted code, but they no longer receive the global
+    APX object by default. This facade exposes only the credential broker needed
+    by provider-style plugins; core integrations continue to use the full object.
+    """
+
+    def __init__(self, cloud: "APX", allowed: tuple[str, ...]):
+        self.credentials = _ScopedCredentials(cloud.credentials, allowed)
+        self.secrets = _ScopedSecrets(cloud.secrets, allowed)
+
+
+class _ScopedSecrets:
+    """Credential backend facade that cannot enumerate or mutate other secrets."""
+
+    def __init__(self, manager, allowed: tuple[str, ...]):
+        self._manager = manager
+        self._allowed = frozenset(allowed)
+
+    def _check(self, credential_id: str) -> None:
+        if credential_id not in self._allowed:
+            raise PermissionError("plugin credential access is outside its declared scope")
+
+    def get(self, credential_id: str) -> dict[str, Any]:
+        self._check(credential_id)
+        return self._manager.get(credential_id)
+
+    def health(self, credential_id: str) -> dict[str, Any]:
+        self._check(credential_id)
+        return self._manager.health(credential_id)
+
+    def reveal(self, credential_id: str, caller_scope: str | None = None) -> dict[str, Any]:
+        self._check(credential_id)
+        return self._manager.reveal(credential_id, caller_scope=caller_scope)
+
+    def set(self, credential_id: str, value: str) -> dict[str, Any]:
+        raise PermissionError("plugins cannot mutate credential stores")
+
+    def rotate(self, credential_id: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise PermissionError("plugins cannot rotate credentials through the plugin facade")
 
 
 class Plugin(Protocol):
@@ -97,13 +168,14 @@ class PluginManager:
         self._document: dict[str, Any] = {}
         self._runtime_active: set[str] = set()
 
-    def _setup(self, name: str, plugin: Any) -> None:
-        api=PluginAPI(self.actions,self.events,self.cloud,name)
+    def _setup(self, name: str, plugin: Any, *, trusted: bool = True) -> None:
         try:
             metadata=getattr(plugin,"metadata",None)
             if metadata is None: metadata=PluginMetadata(name,getattr(plugin,"version","unknown"),getattr(plugin,"description",name))
             if isinstance(metadata,dict): metadata=PluginMetadata(**metadata)
             if metadata.apx!="0.1": raise ValueError(f"plugin requires unsupported APX {metadata.apx}")
+            plugin_cloud = self.cloud if trusted else _ScopedPluginCloud(self.cloud, metadata.credentials)
+            api=PluginAPI(self.actions,self.events,plugin_cloud,name,allowed_credentials=metadata.credentials)
             self.metadata[name]=metadata
             if hasattr(plugin,"setup"): plugin.setup(api)
             elif hasattr(plugin,"register"): plugin.register(self.actions)
@@ -123,7 +195,7 @@ class PluginManager:
                 health["missing_credentials"] = missing_credentials
             self.health.append(health)
         except Exception as error:
-            self.health.append({"name":name,"ok":False,"error":str(error)})
+            self.health.append({"name":name,"ok":False,"error":self.cloud.credentials.redact_text(str(error))})
 
     def load(self, config: str | Path | None) -> list[str]:
         path=Path(config).expanduser() if config else default_config_path()
@@ -160,8 +232,20 @@ class PluginManager:
                 self._setup("discord_webhook",DiscordWebhookPlugin.from_config(discord))
             except Exception as error: self.health.append({"name":"discord_webhook","ok":False,"error":str(error)})
         for point in entry_points(group="apx.plugins"):
-            try: self._setup(point.name,point.load()())
-            except Exception as error: self.health.append({"name":point.name,"ok":False,"error":str(error)})
+            # Discovering an installed third-party entry point must not import or
+            # execute it. Activation requires an explicit enabled=true,
+            # trusted=true grant in APX configuration. Metadata-only inspection is
+            # intentionally sparse until that trust decision is made.
+            settings_for_point = settings.get(point.name, {})
+            if not isinstance(settings_for_point, dict):
+                settings_for_point = {}
+            if not (settings_for_point.get("enabled") and settings_for_point.get("trusted")):
+                version = getattr(getattr(point, "dist", None), "version", "unknown")
+                self.metadata.setdefault(point.name, PluginMetadata(point.name, str(version), "External plugin; explicit trust required"))
+                self.health.append({"name": point.name, "ok": False, "status": "trust_required"})
+                continue
+            try: self._setup(point.name,point.load()(),trusted=False)
+            except Exception as error: self.health.append({"name":point.name,"ok":False,"error":self.cloud.credentials.redact_text(str(error))})
         return [item["name"] for item in self.health if item["ok"]]
 
     def _collect(self, providers, *args):
@@ -208,6 +292,8 @@ class PluginManager:
             state = "disabled"
         elif not configured:
             state = "configuration_required"
+        elif health.get("status") == "trust_required":
+            state = "trust_required"
         elif not healthy:
             state = "unhealthy"
         else:

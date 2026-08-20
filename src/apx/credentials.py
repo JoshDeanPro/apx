@@ -22,6 +22,36 @@ LIFECYCLE_STATES=("active","rotated","retired","revoked","destroyed","unknown")
 class CredentialError(RuntimeError): pass
 
 
+def redact_public_value(value: Any) -> Any:
+    """Return a minimum-disclosure value safe for remote protocol responses.
+
+    This is deliberately a secondary guard. Authorization still comes from the
+    local policy and credential scope; this function prevents accidental leakage
+    through result/error/receipt serialization when a provider returns a
+    secret-shaped field or embeds a credential in text.
+    """
+    def sensitive_key(key: str) -> bool:
+        lowered = key.lower().replace("-", "_")
+        if lowered in {"id", "ref", "request_id", "receipt_id"} or lowered.endswith(("_id", "_ref")):
+            return False
+        return any(marker in lowered for marker in SENSITIVE_KEYS)
+
+    def scrub(item: Any, key: str = "") -> Any:
+        if isinstance(item, dict):
+            return {str(name): (REDACTED if sensitive_key(str(name)) and child not in (None, "", False, (), []) else scrub(child, str(name))) for name, child in item.items()}
+        if isinstance(item, (list, tuple)):
+            return [scrub(child, key) for child in item]
+        if isinstance(item, str):
+            text = re.sub(r"(?i)(bearer\s+|basic\s+)[A-Za-z0-9+/=_\-.]+", r"\1" + REDACTED, item)
+            text = re.sub(r"(?i)(https?://)([^/@\s]+):([^/@\s]+)@", r"\1" + REDACTED + "@", text)
+            text = re.sub(r"-----BEGIN [^-]+-----.*?-----END [^-]+-----", REDACTED, text, flags=re.DOTALL)
+            text = re.sub(r"(?i)((?:api[_-]?key|token|secret|password|passwd|cookie)\s*[:=]\s*)([^,;\s]+)", r"\1" + REDACTED, text)
+            return text[:8192]
+        return item
+
+    return scrub(value)
+
+
 @dataclass(frozen=True)
 class CredentialReference:
     id: str
@@ -174,11 +204,11 @@ class KeychainBackend:
         return result.stdout.strip()
 
     def set(self, ref: CredentialReference, value: str) -> dict[str, Any]:
-        # NOTE: the macOS `security` CLI has no stdin-based input for generic passwords; the value is
-        # necessarily passed as an argv element for the lifetime of this subprocess call.
-        result=self._exec(["/usr/bin/security","add-generic-password","-s",self.service,"-a",ref.reference,"-w",value,"-U"])
-        if result.returncode!=0: raise SecretBackendError(result.stderr.strip() or "keychain write failed")
-        return {"id":ref.id,"source":self.name,"status":"updated"}
+        # `security add-generic-password -w VALUE` exposes VALUE in the child
+        # process argument list. Refuse that unsafe write path rather than
+        # pretending a short-lived subprocess is a secret boundary. Users can
+        # create/update the item in Keychain Access; reads remain supported.
+        raise SecretBackendError("Keychain writes through APX are disabled because the security CLI exposes the value in process arguments")
 
 
 class VaultwardenBackend:
@@ -206,7 +236,12 @@ class VaultwardenBackend:
         return session
 
     def _exec(self, argv: list[str]) -> subprocess.CompletedProcess:
-        try: return self._run(["bw",*argv,"--session",self._session()],capture_output=True,text=True,timeout=15)
+        try:
+            # BW_SESSION is accepted by the Bitwarden CLI and keeps the unlock
+            # token out of argv/process listings. Do not inherit unrelated APX
+            # or user credentials into the child.
+            environment={"PATH":os.environ.get("PATH","/usr/bin:/bin"),"HOME":os.environ.get("HOME",str(os.path.expanduser("~"))),"LANG":os.environ.get("LANG","C"),self.session_env:self._session()}
+            return self._run(["bw",*argv],capture_output=True,text=True,timeout=15,env=environment)
         except FileNotFoundError as error: raise SecretBackendError("the `bw` CLI is not installed; install the Bitwarden CLI to use the vaultwarden backend") from error
         except (subprocess.SubprocessError, OSError) as error: raise SecretBackendError(f"bw command failed: {error}") from error
 

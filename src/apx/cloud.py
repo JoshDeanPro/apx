@@ -810,7 +810,7 @@ class APX:
         except __import__("apx").credentials.CredentialError as error:
             code = getattr(error, "code", "missing_credential")
             details = getattr(error, "details", {})
-            result=ActionResult(action=request.action,ok=False,error=StructuredError(code,str(error),details),request_id=request.request_id,target=request.target,status="failed")
+            result=ActionResult(action=request.action,ok=False,error=StructuredError(code,self.credentials.redact_text(str(error)),details),request_id=request.request_id,target=request.target,status="failed")
             self._emit_for_result(request,result); return result
         except (ActionError, RuntimeError, OSError, ValueError, TypeError) as error:
             # TypeError included: an unexpected/misspelled/missing input field is a caller

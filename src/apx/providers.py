@@ -15,7 +15,7 @@ from .axp import (
     ActionDefinition, ActionReceipt, ActionRequest, ActionResult, ActorDescriptor,
     CredentialHandle, PreparedAction, Resource, StructuredError, ActionRequirements, APX_PROTOCOL_VERSION
 )
-from .credentials import SENSITIVE_KEYS
+from .credentials import SENSITIVE_KEYS, redact_public_value
 from .http import HTTPClient, HTTPFailure
 from .health import ComponentHealth
 
@@ -434,6 +434,29 @@ class HTTPProviderAdapter:
             session=ProviderSession(provider)
         self.session=session
 
+    @staticmethod
+    def _public_wire(value: Any) -> dict[str, Any]:
+        """Serialize a response without exposing diagnostics or secret inputs."""
+        if isinstance(value, ActionResult):
+            result = value.compact()
+            result.update({"apx": APX_PROTOCOL_VERSION, "type": "action.result"})
+            result.pop("execution", None)
+            if value.receipt:
+                result["receipt_id"] = value.receipt.receipt_id
+                result["receipt"] = redact_public_value(value.receipt.to_dict())
+            return redact_public_value(result)
+        if isinstance(value, PreparedAction):
+            result = {key: getattr(value, key) for key in (
+                "action", "target", "effect", "confirmation_required", "cost", "reversible",
+                "reverse_action", "expires_at", "request_id", "provider", "side_effects",
+                "provider_conditions", "confirmation_terms", "prepared_action_id", "authoritative_state_version", "status",
+            )}
+            result.update({"apx": APX_PROTOCOL_VERSION, "type": "action.prepared"})
+            return redact_public_value(result)
+        if hasattr(value, "to_dict"):
+            return redact_public_value(value.to_dict())
+        return redact_public_value(value)
+
     def handle(self, method: str, path: str, body: dict[str,Any] | None = None) -> tuple[int,dict[str,str],dict[str,Any]]:
         headers={"Content-Type":"application/apx+json","Cache-Control":"no-store"}
         if method=="GET" and path==DISCOVERY_PATH:
@@ -441,38 +464,38 @@ class HTTPProviderAdapter:
             return 200,headers,manifest.public_dict()
         if method=="GET" and path.startswith("/apx/v0.1/status/"):
             result=self.session.status(path.rsplit("/",1)[-1]) if self.session else None
-            return (200,headers,result.to_dict()) if result else (404,headers,{"error":{"code":"invalid_request","message":"request not found"}})
+            return (200,headers,self._public_wire(result)) if result else (404,headers,{"error":{"code":"invalid_request","message":"request not found"}})
         if method=="GET" and path.startswith("/apx/v0.1/operations/"):
             result=self.session.operation_status(path.rsplit("/",1)[-1]) if self.session else None
-            return (200,headers,result.to_dict()) if result else (404,headers,{"error":{"code":"invalid_request","message":"operation not found"}})
+            return (200,headers,self._public_wire(result)) if result else (404,headers,{"error":{"code":"invalid_request","message":"operation not found"}})
         if method=="GET" and path.startswith("/apx/v0.1/receipts/"):
             receipt=self.session.receipt(path.rsplit("/",1)[-1]) if self.session else self.provider.get_receipt(path.rsplit("/",1)[-1])
-            return (200,headers,receipt.to_dict()) if receipt else (404,headers,{"error":{"code":"invalid_request","message":"receipt not found"}})
+            return (200,headers,self._public_wire(receipt)) if receipt else (404,headers,{"error":{"code":"invalid_request","message":"receipt not found"}})
         if method=="GET" and path.startswith("/apx/receipts/"):
             receipt=self.provider.get_receipt(path.rsplit("/",1)[-1])
-            return (200,headers,receipt.to_dict()) if receipt else (404,headers,{"error":{"code":"receipt.not_found"}})
+            return (200,headers,self._public_wire(receipt)) if receipt else (404,headers,{"error":{"code":"receipt.not_found"}})
         if method=="POST" and path in {"/apx/actions/prepare","/apx/actions/execute"}:
             try: request=ActionRequest.from_dict(body or {})
             except (TypeError,ValueError,KeyError): return 400,headers,{"error":{"code":"invalid_request","message":"request does not match the APX action request shape"}}
             if path.endswith("prepare"):
                 prepared=self.preparer(request.action,actor=request.actor,target=request.target,**request.input)
-                return 200,headers,prepared.to_dict()
+                return 200,headers,self._public_wire(prepared)
             result=self.executor(request)
             if result.receipt: self.provider.receipts[result.receipt.receipt_id]=result.receipt
             status=200 if result.ok else (401 if result.status=="awaiting-approval" else 403 if result.error and result.error.code=="permission_denied" else 400)
-            return status,headers,result.to_dict()
+            return status,headers,self._public_wire(result)
         if method=="POST" and path in {"/apx/v0.1/prepare","/apx/v0.1/execute"} and self.session:
             try: request=ActionRequest.from_dict(body or {})
             except (TypeError,ValueError,KeyError): return 400,headers,{"error":{"code":"invalid_request","message":"request does not match the APX action request shape"}}
             value=self.session.prepare(request) if path.endswith("prepare") else self.session.execute(request)
-            return 200,headers,value.to_dict()
+            return 200,headers,self._public_wire(value)
         if method=="POST" and path=="/apx/v0.1/authorize" and self.session:
             result=self.session.authorize((body or {}).get("prepared_action_id",""),(body or {}).get("confirmation",{}))
-            return 200,headers,result.to_dict()
+            return 200,headers,self._public_wire(result)
         if method=="POST" and path=="/apx/v0.1/cancel" and self.session:
-            return 200,headers,self.session.cancel((body or {}).get("prepared_action_id","")).to_dict()
+            return 200,headers,self._public_wire(self.session.cancel((body or {}).get("prepared_action_id","")))
         if method=="POST" and path.startswith("/apx/v0.1/reverse/") and self.session:
             try: request=ActionRequest.from_dict(body or {})
             except (TypeError,ValueError,KeyError): return 400,headers,{"error":{"code":"invalid_request","message":"request does not match the APX action request shape"}}
-            return 200,headers,self.session.reverse(path.rsplit("/",1)[-1],request).to_dict()
+            return 200,headers,self._public_wire(self.session.reverse(path.rsplit("/",1)[-1],request))
         return 404,headers,{"error":{"code":"not_found"}}
